@@ -1,6 +1,8 @@
-# Stage 0 — Design plan (Label Extraction Agent)
+# Technical design (Stage 0 plan, approved 2026-09-04)
 
-Status: awaiting approval. No code written.
+Companion to docs/PRD.md. Written before any code; kept as the reference for the data model,
+state machine, action/job decomposition, failure taxonomy and test matrix. Where the code and this
+document disagree, the code plus DECISIONS.md win and this file should be updated.
 
 ## What the inputs told us
 
@@ -27,7 +29,8 @@ the single retail unit with a raw string; schema extras (document_type, contains
 are in; caps are 10 MB / 20 files / 10 pages / 25 MP; model is env-configured and verified with one real
 call in Stage 3; plain Laravel Job + Actions. Sweeper built, FE unit tests skipped, no retry button, no
 websockets, no cloud deploy, no virus scanning, RateLimited middleware documented not built.
-Still open: whether user authentication is in scope (question 1 below).
+Resolved after this was written: user authentication IS in scope (Fortify, session auth, uploads
+scoped per user); hosting deployment is parked until the app is complete.
 Every decision here is to be carried into DECISIONS.md in the repo.
 
 ## Open questions (as originally asked, each with my recommendation)
