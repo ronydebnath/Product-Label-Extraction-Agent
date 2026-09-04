@@ -59,7 +59,7 @@ security of untrusted input, scalability reasoning, unhappy-path tests, and clea
 ## 4. Command cheat sheet
 
 ```sh
-docker compose up -d                       # dev stack (override merged): web, worker, migrate, postgres, redis, vite
+docker compose up -d                       # dev stack (override merged): web, worker, scheduler, migrate, postgres, redis, vite
 docker compose up -d --build               # after Dockerfile or docker/ changes
 docker compose restart worker              # after PHP changes; Horizon does not hot-reload
 docker compose up -d --scale worker=3      # prove single processing across replicas
@@ -153,8 +153,9 @@ Backend only; pages come in Stage 4. Work test-first in this order (details in T
 6. Update README (upload limits), DECISIONS.md (validation order, why per-file rejection), and
    this file. Announce the commit point.
 
-Pending decision to raise with Rony at Stage 3: the sweeper needs a scheduler process. Recommend a
-`scheduler` compose service running `php artisan schedule:work` from the same image.
+Decided 2026-09-04: the sweeper is fired by a `scheduler` compose service running
+`php artisan schedule:work` off the same image. The container exists already and idles until
+Stage 3 registers a task in `routes/console.php`; register it with `onOneServer()`.
 
 ## 9. Gotchas already paid for
 

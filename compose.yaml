@@ -3,6 +3,7 @@
 #
 #   web       nginx + php-fpm            handles HTTP, never runs a job
 #   worker    Laravel Horizon            the only process that runs jobs; same image, different command
+#   scheduler Laravel scheduler          fires due tasks (the stuck-upload sweeper); never more than one
 #   migrate   one-shot `migrate --force` runs exactly once per `up`, before web and worker start
 #   postgres  PostgreSQL 17              uploads + extractions tables
 #   redis     Redis 8                    queue, cache, sessions
@@ -45,6 +46,20 @@ services:
       # Shared with web only because both run on this one host. Production uses object storage
       # precisely because workers cannot be assumed to share a disk with web (DECISIONS.md).
       - uploads:/var/www/html/storage/app/private
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  # Exactly one of these, always. `schedule:work` fires every due task on the minute, so a second
+  # instance means the sweeper runs twice concurrently -- which is why the worker scales and this
+  # does not. The scheduled tasks additionally take a Redis lock (`onOneServer`), so a mistaken
+  # `--scale scheduler=2` degrades into one instance doing nothing rather than into double work.
+  # No uploads volume on purpose: the sweeper only moves rows and re-dispatches jobs by id, and
+  # mounting the file store into a process that has no business reading it widens the blast radius.
+  scheduler:
+    <<: *app
+    command: ["scheduler"]
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

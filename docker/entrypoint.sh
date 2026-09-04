@@ -1,8 +1,9 @@
 #!/bin/sh
 # Single entrypoint for every process type built from this image.
-#   entrypoint web        nginx + php-fpm under supervisord   (compose service: web)
-#   entrypoint horizon    Laravel Horizon queue worker         (compose service: worker)
-#   entrypoint <cmd...>   anything else runs as-is             (migrate, tests, artisan)
+#   entrypoint web        nginx + php-fpm under supervisord  (compose service: web)
+#   entrypoint horizon    Laravel Horizon queue worker        (compose service: worker)
+#   entrypoint scheduler  Laravel scheduler, exactly one      (compose service: scheduler)
+#   entrypoint <cmd...>   anything else runs as-is            (migrate, tests, artisan)
 set -eu
 cd /var/www/html
 
@@ -32,7 +33,10 @@ require_app_key() {
 }
 
 case "${1:-web}" in
-    web)     require_app_key; exec supervisord -c /etc/supervisor/web.conf ;;
-    horizon) require_app_key; exec php artisan horizon ;;
-    *)       exec "$@" ;;
+    web)       require_app_key; exec supervisord -c /etc/supervisor/web.conf ;;
+    horizon)   require_app_key; exec php artisan horizon ;;
+    # schedule:work is the long-running form of the cron entry: it stays in the foreground and
+    # fires due tasks on the minute, which is what a container supervisor wants to watch.
+    scheduler) require_app_key; exec php artisan schedule:work ;;
+    *)         exec "$@" ;;
 esac

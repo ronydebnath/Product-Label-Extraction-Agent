@@ -12,6 +12,11 @@ services:
     volumes:
       - .:/var/www/html
 
+  scheduler:
+    build: { target: dev }
+    volumes:
+      - .:/var/www/html
+
   migrate:
     build: { target: dev }
     volumes:

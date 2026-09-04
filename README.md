@@ -3,7 +3,7 @@
 Upload product label images or PDFs; a queued agent calls an LLM and turns each one into
 validated, structured product data (name, brand, ingredients, allergens, net weight).
 
-Trial task for SupplyScope. Product requirements: [docs/PRD.md](docs/PRD.md).
+Label Extraction Agent for SupplyScope. Product requirements: [docs/PRD.md](docs/PRD.md).
 Technical decisions and trade-offs: [DECISIONS.md](DECISIONS.md).
 
 ## Topology
@@ -15,6 +15,7 @@ adds development conveniences and is merged automatically by plain `docker compo
 |---|---|---|---|
 | `web` | this repo's Dockerfile, `runtime` target | nginx + php-fpm (supervisord) | HTTP only. Never executes a job. Port 8080. |
 | `worker` | the **same image** | `php artisan horizon` | The only process that runs jobs. Scale with `--scale worker=N`. |
+| `scheduler` | the same image | `php artisan schedule:work` | Fires due tasks (the stuck-upload sweeper). Exactly one instance; never scaled. |
 | `migrate` | the same image | `php artisan migrate --force`, once | One-shot; web and worker wait for it to finish. |
 | `postgres` | `postgres:17-alpine` | database | Healthcheck gates app startup. Named volume `pgdata`. |
 | `redis` | `redis:8-alpine` | queue, cache, sessions | Append-only persistence so jobs survive a restart. Named volume `redisdata`. |
@@ -24,9 +25,9 @@ Uploaded files live on the `uploads` named volume, mounted into both web and wor
 `storage/app/private`. That only works because both run on one host; see DECISIONS.md for why
 production points `UPLOADS_DISK` at object storage instead.
 
-Web and worker are one image, one entrypoint ([docker/entrypoint.sh](docker/entrypoint.sh)),
-differing only by the argument (`web` or `horizon`). The Dockerfile's stages and what each buys
-are described at the top of [Dockerfile](Dockerfile).
+Web, worker and scheduler are one image, one entrypoint ([docker/entrypoint.sh](docker/entrypoint.sh)),
+differing only by the argument (`web`, `horizon` or `scheduler`). The Dockerfile's stages and what
+each buys are described at the top of [Dockerfile](Dockerfile).
 
 ## Run it
 
