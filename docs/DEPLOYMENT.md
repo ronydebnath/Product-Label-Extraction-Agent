@@ -1,9 +1,10 @@
 # Deployment
 
 Written host-agnostically on purpose. Nothing in this application knows where it runs: the same
-image serves every role, storage is a Laravel disk, and the queue is a connection string. No target
-has been provisioned yet, so **treat this as the plan, not a transcript** — the compose topology it
-describes has been run and verified, the cloud specifics have not.
+image serves every role, storage is a Laravel disk, and the queue is a connection string. The single-VM
+walkthrough below was written against a real DigitalOcean droplet and the compose topology has been
+run and verified; the managed-service, multi-replica shape above it is still **the plan, not a
+transcript**.
 
 ## What has to run
 
@@ -139,6 +140,109 @@ Without it, more workers turn a throughput problem into a wall of 429s that burn
 Every log line carries the upload id as a correlation id, so one grep follows a file from request to
 completion.
 
+## A concrete example: one VM
+
+The whole stack on a single host — the smallest thing that actually works, and what a demo box
+usually needs. Written against a DigitalOcean droplet; any Linux machine with Docker and Compose v2
+behaves the same.
+
+**Always pass `-f compose.yaml`.** A bare `docker compose` merges `compose.override.yaml`, which is
+development-only and breaks a server in two ways:
+
+- It bind-mounts the checkout over `/var/www/html`, hiding the `vendor/` and `public/build` that
+  were baked into the image. A fresh `git clone` has neither — both are gitignored — so the first
+  artisan call dies with `Failed to open stream: /var/www/html/vendor/autoload.php`. The
+  entrypoint's rescue `composer install` will not save you: it runs only when `APP_ENV=local`, and
+  it writes as uid 1000 into a checkout owned by root.
+- It publishes Postgres on 5432, Redis on 6379, and **Adminer on 8081** — an unauthenticated console
+  into the database — on `0.0.0.0`.
+
+If the dev stack was ever started on the box, switching compose files does not stop those
+containers. `--remove-orphans` is what deletes them.
+
+### 1. Prepare the host
+
+1 GB is not enough to *build* the image: the `assets` stage runs `npm ci` and a Vite production
+build, and the OOM killer takes it. Add swap, or build elsewhere and pull the image.
+
+```sh
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
+
+2 GB of RAM is the realistic floor for *running* it: Postgres, Redis, nginx + php-fpm, and five
+Horizon processes.
+
+### 2. Configure
+
+```sh
+cp .env.example .env
+echo "APP_KEY=base64:$(head -c 32 /dev/urandom | base64)"   # paste the line into .env
+```
+
+`php artisan key:generate` is not usable here. With no bind mount it writes `.env` inside a
+container that is then discarded, so the key never reaches the host. The line above produces exactly
+what Laravel would — 32 random bytes, base64-encoded. Once an image exists,
+`docker compose -f compose.yaml run --rm --no-deps web php artisan key:generate --show` prints an
+equivalent value.
+
+Then edit `.env`:
+
+```
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=http://<ip-or-domain>   # no port suffix when WEB_PORT=80
+WEB_PORT=80                     # compose publishes ${WEB_PORT:-8080}:8080
+DB_PASSWORD=<a real password>
+OPENAI_API_KEY=<a real key>
+```
+
+`UPLOADS_DISK=local` is acceptable on one host and only on one host: web and worker share the
+`uploads` named volume. The moment web moves to a second machine it must become `s3` — see
+[Storage must be object storage](#storage-must-be-object-storage).
+
+### 3. Run
+
+```sh
+docker compose -f compose.yaml build
+docker compose -f compose.yaml up -d --remove-orphans
+docker compose -f compose.yaml ps
+```
+
+`web` should settle on `(healthy)` within ~15s. `migrate` showing `Exited (0)` is success, not a
+crash — it is the one-shot migration service having done its job.
+
+### 4. Verify, in this order
+
+```sh
+curl -I http://127.0.0.1:${WEB_PORT:-8080}/up      # from the box itself
+docker compose -f compose.yaml logs web --tail=50
+```
+
+Reachable locally but not from outside is always a firewall: `ufw status` on the host
+(`ufw allow 80/tcp`), plus the provider's own — on DigitalOcean, Networking → Firewalls.
+`ERR_CONNECTION_REFUSED` from a browser against a healthy stack almost always means the app is on
+8080 and `WEB_PORT` was never set; nothing is listening on 80.
+
+### 5. Updating
+
+```sh
+git pull
+docker compose -f compose.yaml up -d --build --remove-orphans
+```
+
+Edits to `.env` need `up -d`, not `restart`: the entrypoint builds the config cache at container
+start and `restart` reuses the old environment. Everything already waits on the one-shot `migrate`
+service, so the release order above holds by itself here — it is multi-replica rollouts that need
+migrations promoted to a separate release step.
+
+### What this deliberately gives up
+
+One host means no redundancy, uploads on a local volume rather than a bucket, Postgres and Redis
+unmanaged and unbacked-up, and `docker compose build` competing for RAM with the containers serving
+traffic. That is a fair trade for a demo or a staging box, and every section above it is what
+production actually looks like.
+
 ## A concrete example: Fly.io
 
 The candidate host, not yet provisioned. One app, three process groups from the same image:
@@ -166,11 +270,13 @@ Migrations go in `[deploy] release_command = "php artisan migrate --force"`, whi
 before shifting traffic — the release-step requirement above, for free.
 
 Any platform that can run three process groups from one image and inject secrets works the same way:
-ECS services, Kubernetes Deployments plus a Job for migrations, or a plain VM running
-`docker compose -f compose.yaml up -d`.
+ECS services, Kubernetes Deployments plus a Job for migrations, or the single VM
+above.
 
 ## Before the first production deploy
 
+- [ ] Deployed from `compose.yaml` alone — `compose.override.yaml` never merged on a server; it
+      hides the image's `vendor/` and opens Postgres, Redis and an unauthenticated Adminer
 - [ ] `APP_DEBUG=false` and a generated `APP_KEY` held as a secret
 - [ ] `UPLOADS_DISK=s3` against a **private** bucket
 - [ ] `SESSION_DRIVER=redis` if more than one web replica

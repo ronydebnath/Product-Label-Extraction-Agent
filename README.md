@@ -17,23 +17,77 @@ dependency: slow, absent, rate-limited, or answering with nonsense.
 
 ## Quick start
 
-Requirements: Docker with Compose v2. PHP, Composer and Node all run inside containers.
+Requirements: **Docker with Compose v2, and nothing else.** PHP, Composer, Node and npm all run
+inside containers — you do not need any of them installed.
 
 ```sh
-cp .env.example .env
-docker compose run --rm --no-deps web php artisan key:generate
-# add a real OPENAI_API_KEY to .env
+git clone <this repo> && cd "Label Extraction Agent app"
+cp .env.example .env                                                # required: see below
+docker compose run --rm --no-deps web php artisan key:generate      # writes APP_KEY into .env
 docker compose up
 ```
 
-Open http://localhost:8080, register an account, and drop a label or spec sheet onto the page.
-Migrations run automatically in a one-shot service before the app starts.
+Then open http://localhost:8080 and register an account.
 
-| | |
+**This is the development stack.** A bare `docker compose` merges
+[compose.override.yaml](compose.override.yaml), which bind-mounts the checkout over the image and
+publishes Postgres, Redis and an unauthenticated Adminer. On a server, run `compose.yaml` alone:
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#a-concrete-example-one-vm) walks a single VM end to end.
+
+### What happens on that first run, and how long it takes
+
+**`cp .env.example .env` is not optional.** Compose reads `.env` to configure the database
+container, so without it nothing starts at all — you get
+`required variable DB_PASSWORD is missing a value`. The example file has working local defaults, so
+copying it is enough; the only value you may want to change is `OPENAI_API_KEY`.
+
+**Dependencies install themselves. There is no `composer install` or `npm install` step.**
+
+| | How it arrives |
 |---|---|
-| Application | http://localhost:8080 |
-| Horizon dashboard | http://localhost:8080/horizon |
-| Adminer (dev only) | http://localhost:8081 — server `postgres`, credentials from `.env` |
+| `vendor/` | The image ships it. In dev the bind mount hides the image's copy, so [`docker/entrypoint.sh`](docker/entrypoint.sh) runs `composer install` on start when `vendor/autoload.php` is missing. |
+| `node_modules/` | The `vite` service runs `npm install` before starting the dev server, into a named volume that never touches your host. |
+| `public/build` | Built inside the image for production runs; in dev the Vite dev server serves assets and no build is needed. |
+| Database schema | The one-shot `migrate` service runs `migrate --force` before `web` and `worker` start. |
+
+**The first run takes several minutes** — it builds the PHP image, installs Composer and npm
+dependencies, and compiles assets. Later runs start in seconds. `docker compose up` without `-d`
+lets you watch it; the app is ready when `web` reports healthy.
+
+### Verify it worked
+
+```sh
+docker compose ps                                    # web/postgres/redis healthy, migrate Exited (0)
+curl -s -o /dev/null -w "%{http_code}\n" localhost:8080/login   # 200
+docker compose exec web php artisan queue:ping       # then look for queue.pong in the worker log
+```
+
+`migrate` showing `Exited (0)` is success — it is a one-shot task, not a crashed service.
+
+### Without an OpenAI key
+
+Everything works except extraction. Uploads are validated, stored and queued; the worker then gets a
+`401` from OpenAI and each upload finishes as **Failed — "The AI service rejected the request."**
+That is the correct handling of a permanent failure, and it is a reasonable way to see the failure
+path. Put a real key in `OPENAI_API_KEY` and re-create the containers to get extraction:
+
+```sh
+docker compose up -d --force-recreate      # a plain `restart` keeps the OLD environment
+```
+
+### If something goes wrong
+
+| Symptom | Cause |
+|---|---|
+| `required variable DB_PASSWORD is missing` | no `.env` — run `cp .env.example .env` |
+| `APP_KEY is empty` and the container exits | run the `key:generate` step above |
+| Ports 8080, 5173, 5432, 6379 or 8081 already in use | set `WEB_PORT`, `POSTGRES_HOST_PORT`, `REDIS_HOST_PORT` or `ADMINER_PORT` in `.env` |
+| Blank page in the browser | the `vite` service is not running; check `docker compose logs vite` |
+| A `.env` change appears to be ignored | `restart` reuses the old environment — use `up -d --force-recreate` |
+| `Failed to open stream: .../vendor/autoload.php` | the dev bind mount is hiding the image's `vendor/`, and this checkout has none. On a server use `-f compose.yaml`; locally make sure `APP_ENV=local` so the entrypoint can install |
+| Nothing answers on the host's IP | compose publishes `${WEB_PORT:-8080}`, so it is `:8080` unless you set `WEB_PORT=80`. Then check `ufw` and any cloud firewall |
+
+More in [docs/USAGE.md](docs/USAGE.md).
 
 ## Topology
 
@@ -76,7 +130,8 @@ Three workers, no double processing:
 docker compose up -d --scale worker=3
 ```
 
-Production-shaped run — no bind mounts, baked assets, cached config:
+Production-shaped run — no bind mounts, baked assets, cached config. This is also the command a
+server runs; [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#a-concrete-example-one-vm) has the rest of it:
 
 ```sh
 docker compose -f compose.yaml up --build
@@ -135,7 +190,8 @@ Larastan 3; React 19, TypeScript 6, Inertia 3, Tailwind 4, Radix UI, TanStack Qu
 
 Deliberate, with reasons in [docs/PRD.md](docs/PRD.md#11-out-of-scope-with-reasons): no manual retry
 button, no websocket push, no virus scanning, no frontend unit tests (TypeScript strict and ESLint
-instead), no password reset or 2FA, and no cloud deployment yet —
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) is the plan rather than a transcript.
+instead), no password reset or 2FA, and no managed cloud hosting —
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) walks a single VM end to end, but the multi-replica,
+managed-service topology is the plan rather than a transcript.
 
 The one piece of the 50,000-upload answer that is described rather than built is the rate-limiting queue middleware. It is ten lines, and it cannot be honestly demonstrated without a real rate limit to hit.
