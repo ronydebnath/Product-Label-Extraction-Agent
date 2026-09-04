@@ -43,6 +43,22 @@ services:
     ports:
       - "5173:5173"
 
+  # Database console, dev only and deliberately absent from compose.yaml: it is an unauthenticated
+  # gateway to Postgres for anyone who can reach the port, which is fine on a laptop and a serious
+  # hole anywhere else. It talks to the postgres service over the compose network, so nothing has
+  # to be published from the database itself for it to work.
+  adminer:
+    image: adminer:5
+    environment:
+      # Pre-fills the login form; the password is still the one from .env.
+      ADMINER_DEFAULT_SERVER: postgres
+      ADMINER_DEFAULT_DRIVER: pgsql
+    ports:
+      - "${ADMINER_PORT:-8081}:8080"
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
   postgres:
     ports:
       - "${POSTGRES_HOST_PORT:-5432}:5432"
