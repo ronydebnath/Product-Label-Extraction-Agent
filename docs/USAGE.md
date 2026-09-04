@@ -55,7 +55,7 @@ Migrations run automatically in the one-shot `migrate` service; `web` and `worke
 docker compose exec web composer require vendor/package
 docker compose exec web php artisan make:action Uploads/Thing   # any artisan generator
 docker compose exec vite npm install some-package
-docker compose exec web bash                                    # a shell in the app container
+docker compose exec web sh                                      # a shell in the app container (Alpine: sh, not bash)
 ```
 
 Never run `composer` from the `composer:2` image directly: it runs a different PHP version and will
