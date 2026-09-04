@@ -130,35 +130,39 @@ Custom code so far (everything else is the untouched Laravel 13.10 skeleton):
 | 1 Containers and schema | done, verified | migrate service ran 5 migrations; ping from web handled by worker container; worker survived `docker compose restart redis` (logs one connection error, then continues); 3 replicas processed 7 pings exactly once; tests, Pint, PHPStan green |
 | 1b Scheduler | done, verified | `scheduler` service runs `schedule:work`; minute loop fires (2 ticks in 2 minutes); `--scale scheduler=2` still fires each task once, instances alternating as lock winner |
 | 2a Auth | done | Fortify trimmed to registration + login; 7 tests green; register exercised in the browser, lands on /uploads |
-| 2b Upload path | next | see section 8, from step 2 |
+| 2b Upload path | done, verified | 18 upload tests green; a real 3-page UAT spec sheet uploaded through the running stack was accepted with page_count 3, stored under a uuid path visible from the worker container, and its job drained from Redis; a text file named .jpg was rejected in the same request |
 | 3 Extraction agent | todo | LlmClient interface + fake, schema, retry policy, job, sweeper |
 | 4 Frontend | todo | React + Inertia scaffold, auth pages, list with polling, detail, states |
 | 5 Test matrix | todo | remaining rows of TDD-SPEC.md section 5 |
 | 6 Docs and review brief | todo | trim DECISIONS.md to a page, README final, review-call brief |
 
-## 8. Next action (Stage 2)
+## 8. Next action (Stage 3: the extraction agent)
 
-Backend only; pages come in Stage 4. Work test-first in this order (details in TDD-SPEC.md):
+Stage 2 is complete. Work test-first in this order (rows T3.1 to T3.21 in TDD-SPEC.md):
 
-1. Done. Fortify 1.39 and laravel-actions 2.12 installed; `config/fortify.php` trimmed to
-   `Features::registration()` with `home` at `/uploads`; the two-factor and passkey migrations and
-   the unused published actions deleted; login and register render placeholder blades that Stage 4
-   replaces with Inertia pages. T2.5 (guest redirect) is still open: it needs the routes from
-   step 4.
-2. `app/Enums/FailureCode.php` with `message()` for every code in PRD section 7.
-3. `tests/Fixtures/` plus a `PdfFixture` helper that builds an N-page PDF in memory.
-4. `POST /uploads` through `StoreUploads` (Action as controller) calling `ValidateUploadedFile`
-   and `CreateUpload`. Write the rejection tests first (unsupported type, empty, too large, too
-   many files, corrupt, too many pages, image too large), then the accept test, then the mixed
-   batch, then the "dispatch after commit" and "queue unavailable" tests.
-5. `ProcessUploadJob` stub that only acquires the lease (so dispatch tests have a class to assert
-   on); the real body arrives in Stage 3.
-6. Update README (upload limits), DECISIONS.md (validation order, why per-file rejection), and
-   this file. Announce the commit point.
+1. `App\Llm\LlmClient` interface plus `LlmRequest`/`LlmResponse` DTOs, and
+   `Tests\Support\FakeLlmClient` bound in `tests/Pest.php` so no test can reach OpenAI.
+2. `LabelDataSchema` and a `PROMPT_VERSION` constant, matching PRD section 8 exactly. Validate the
+   response server-side against the same schema that was sent as `json_schema`.
+3. `LlmTransientException` / `LlmPermanentException`, then `OpenAiResponsesClient` with
+   `Http::fake()` tests mapping status codes to the right exception (T3.1, T3.2).
+4. `RetryBackoff` as an injectable policy so job tests bind a fixed delay and the jitter gets its
+   own seeded unit test (T3.5).
+5. `ExtractLabelData`: reuse by (content_hash, model, prompt_version), load the bytes, build the
+   request, validate the result, map `document_type = other` to `no_label_found`.
+6. Fill in `ProcessUploadJob`: compare-and-swap lease, release with backoff on transient failures,
+   terminal on permanent ones, and a `failed()` hook that can never leave a row in `processing`.
+7. `RequeueStaleUploads` command, registered in `routes/console.php` with `onOneServer()`. The
+   `scheduler` container is already running and currently has nothing to fire.
 
-Decided 2026-09-04: the sweeper is fired by a `scheduler` compose service running
-`php artisan schedule:work` off the same image. The container exists already and idles until
-Stage 3 registers a task in `routes/console.php`; register it with `onOneServer()`.
+Open question for Rony, needed before step 3: which model the OpenAI key can actually reach. The
+plan is a mini-tier vision model behind `OPENAI_MODEL`, verified with one real call.
+
+Timing ladder to keep consistent: LLM HTTP timeout 60 s < job timeout 90 s < lease stale 120 s <
+`REDIS_QUEUE_RETRY_AFTER` 150 s.
+
+Decided 2026-09-04: the sweeper is fired by the `scheduler` compose service running
+`php artisan schedule:work` off the same image, registered with `onOneServer()`.
 
 ## 9. Gotchas already paid for
 
@@ -180,6 +184,10 @@ Stage 3 registers a task in `routes/console.php`; register it with `onOneServer(
   the development database and the real Redis queue. If you add a variable there use `<server>`,
   and re-check with `dump(app()->environment(), config('database.connections.pgsql.database'))`.
 - Fortify's login throttle returns 429 from middleware, not a validation error on the session.
+- `UploadedFile::fake()` reports a mime type guessed from the filename, so it cannot test sniffing.
+  Use the `uploadedBytes()` / `sampleFile()` helpers in `tests/Pest.php`, which build a real
+  `UploadedFile` over real bytes with `test: true`.
+- Pest already defines a global `fixture()`; naming a helper that collides fails at parse time.
 - `LOG_CHANNEL=stderr`, so there is no `storage/logs/laravel.log`. Read application output with
   `docker compose logs <service>`, not by grepping a file.
 - `onOneServer()` on a closure throws `LogicException` unless `name()` is called first. Scheduling

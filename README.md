@@ -63,6 +63,15 @@ docker compose -f compose.yaml up --build
 Changing `.env` needs `docker compose up -d` again (containers read it at creation), and Horizon
 needs a restart after PHP changes in dev: `docker compose restart worker`.
 
+## Upload limits
+
+10 MB per file, 20 files per request, 10 pages per PDF, 25 megapixels per image. JPEG, PNG, WebP
+and PDF only, decided by sniffing the bytes rather than by the extension. All of it comes from
+[config/uploads.php](config/uploads.php), which is also what the user-facing messages quote.
+
+`POST /uploads` validates each file separately and answers 201 with `accepted` and `rejected`
+lists, or 422 when nothing was accepted.
+
 ## Tests and static analysis
 
 All run inside the container against the real Postgres (database `app_test`) and Redis (db 9):

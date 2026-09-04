@@ -52,6 +52,25 @@ volume shared by web and worker. In production it must be object storage (any S3
 bucket): container filesystems are ephemeral and workers do not share a disk with web. Files are
 stored under a uuid path outside the web root; the client's filename is display-only.
 
+## Upload validation
+
+Checks run cheapest first: PHP's own upload result, then size, then sniffed type, then structure.
+Nothing reads a file's contents until the size cap has passed, so an oversized upload is refused
+without ever being parsed. Type comes from `finfo` over the bytes; the extension and the client's
+declared mime type are attacker-controlled and are never consulted. PDFs must satisfy `pdfinfo`,
+which reads the cross-reference table rather than trusting four magic bytes, and encrypted PDFs are
+refused because they parse but will not render.
+
+Images are validated by header only (`getimagesize`), not decoded. Decoding is what the dimension
+cap exists to avoid: a 25-megapixel image costs far more memory to decode than to reject, and GD is
+deliberately not in the image. The cost is that a file with a valid header and a corrupt body gets
+as far as the model, which then fails it. That is the right place to pay it.
+
+Rejection is per file (FR-7): one bad file in a batch of twenty does not cost the user the other
+nineteen, and each rejection names the file they recognise. The file-count cap is the exception and
+refuses the request whole, because accepting the first twenty of twenty-one is a silent partial
+success the user cannot see.
+
 ## Idempotency and dedupe
 
 Status transitions are single `UPDATE ... WHERE status = expected` statements with an

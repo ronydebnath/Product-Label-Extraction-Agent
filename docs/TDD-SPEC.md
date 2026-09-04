@@ -94,28 +94,32 @@ Auth (FR-1, FR-2)
 - [x] T2.2 Rejects registration with a duplicate email or a short password.
 - [x] T2.3 Logs in with valid credentials; rejects invalid ones; throttles after repeated failures.
 - [x] T2.4 Logs out and invalidates the session.
-- [ ] T2.5 Guests are redirected from `/uploads` and get 401 JSON from `/api/uploads`.
+- [~] T2.5 Guests get 401 JSON from `POST /uploads` (done). The redirect from the `/uploads`
+      page and the `/api/uploads` snapshot wait for those routes in Stage 4.
 
 Upload rejection (FR-4 to FR-7)
-- [ ] T2.6 (M) `.txt` renamed to `.jpg` is rejected as `unsupported_type`; nothing stored, nothing dispatched.
-- [ ] T2.7 Zero-byte file rejected as `file_empty`.
-- [ ] T2.8 File over 10 MB rejected as `file_too_large` before any sniffing.
-- [ ] T2.9 Twenty-one files rejected as `too_many_files` with no file processed.
-- [ ] T2.10 PDF magic bytes with junk body rejected as `corrupt_file`; PNG header with junk body likewise.
-- [ ] T2.11 Eleven-page PDF rejected as `too_many_pages`; ten pages accepted.
-- [ ] T2.12 PNG declaring 6000x6000 rejected as `image_too_large`.
-- [ ] T2.13 SVG and HEIC rejected even when the client declares `image/png`.
+- [x] T2.6 (M) `.txt` renamed to `.jpg` is rejected as `unsupported_type`; nothing stored, nothing dispatched.
+- [x] T2.7 Zero-byte file rejected as `file_empty`.
+- [x] T2.8 File over 10 MB rejected as `file_too_large` before any sniffing.
+- [x] T2.9 Twenty-one files rejected as `too_many_files` with no file processed.
+- [x] T2.10 PDF magic bytes with junk body rejected as `corrupt_file`; PNG header with junk body likewise.
+- [x] T2.11 Eleven-page PDF rejected as `too_many_pages`; ten pages accepted.
+- [x] T2.12 PNG declaring 6000x6000 rejected as `image_too_large`.
+- [x] T2.13 SVG and HEIC rejected even when the client declares `image/png`.
 
 Upload acceptance (FR-3, FR-8, FR-9, FR-10)
-- [ ] T2.14 JPEG, PNG, WebP and PDF are accepted: 201, one `queued` row each with sniffed mime,
+- [x] T2.14 JPEG, PNG, WebP and PDF are accepted: 201, one `queued` row each with sniffed mime,
       kind, size, sha256, page count for the PDF; file exists on the disk under a uuid path; the
       original name (including one containing `../`) is stored as display text only.
-- [ ] T2.15 `ProcessUploadJob` is dispatched once per accepted file with the upload id, after commit.
-- [ ] T2.16 Mixed batch of two valid and one invalid file: 201, both lists populated, only two rows.
-- [ ] T2.17 All files invalid: 422 with per-file reasons.
-- [ ] T2.18 Queue connection throwing at dispatch: row is `failed` with `queue_unavailable` and
+- [x] T2.15 `ProcessUploadJob` is dispatched once per accepted file with the upload id, after commit.
+- [x] T2.16 Mixed batch of two valid and one invalid file: 201, both lists populated, only two rows.
+- [x] T2.17 All files invalid: 422 with per-file reasons.
+- [x] T2.18 Queue connection throwing at dispatch: row is `failed` with `queue_unavailable` and
       the response reports it.
-- [ ] T2.19 Rows belong to the authenticated user; another user's upload id returns 404 on show.
+- [x] T2.19a A created row belongs to the authenticated user.
+- [ ] T2.19b Another user's upload id returns 404 on show (needs the Stage 4 show route).
+- [x] T2.20 The same bytes uploaded twice make two rows with one content hash, so Stage 3
+      has something to deduplicate against (FR-14).
 
 ### Stage 3: extraction agent
 
