@@ -1,0 +1,94 @@
+# Production-shaped topology. Plain `docker compose up` also merges compose.override.yaml (dev
+# conveniences); `docker compose -f compose.yaml up` runs this file alone, the way production would.
+#
+#   web       nginx + php-fpm            handles HTTP, never runs a job
+#   worker    Laravel Horizon            the only process that runs jobs; same image, different command
+#   migrate   one-shot `migrate --force` runs exactly once per `up`, before web and worker start
+#   postgres  PostgreSQL 17              uploads + extractions tables
+#   redis     Redis 8                    queue, cache, sessions
+
+name: label-extraction
+
+x-app: &app
+  build:
+    context: .
+    target: runtime
+  image: label-extraction/app
+  env_file: .env
+  restart: unless-stopped
+
+services:
+  web:
+    <<: *app
+    command: ["web"]
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    volumes:
+      - uploads:/var/www/html/storage/app/private
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/up"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+  # `docker compose up --scale worker=3` starts three of these. Redis hands every job to exactly
+  # one of them; the job's own lease check (see ProcessUploadJob) covers the redelivery cases.
+  worker:
+    <<: *app
+    command: ["horizon"]
+    volumes:
+      # Shared with web only because both run on this one host. Production uses object storage
+      # precisely because workers cannot be assumed to share a disk with web (DECISIONS.md).
+      - uploads:/var/www/html/storage/app/private
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  # Migrations run here and nowhere else. Putting them in the web entrypoint means N replicas
+  # race the same DDL on a scale-out; a one-shot service runs once and gates everything behind it.
+  migrate:
+    <<: *app
+    command: ["php", "artisan", "migrate", "--force"]
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-app}
+      POSTGRES_USER: ${DB_USERNAME:-app}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-app} -d ${DB_DATABASE:-app}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    # appendonly: queued and reserved jobs survive a restart.
+    # noeviction: a queue must fail loudly under memory pressure, never silently drop jobs.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  uploads:
+  pgdata:
+  redisdata:

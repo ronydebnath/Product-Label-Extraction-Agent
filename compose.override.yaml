@@ -1,0 +1,44 @@
+# Development overrides. `docker compose up` merges this automatically.
+# Everything here is convenience: bind mounts for hot reload, the Vite dev server, exposed DB ports.
+
+services:
+  web:
+    build: { target: dev }
+    volumes:
+      - .:/var/www/html
+
+  worker:
+    build: { target: dev }
+    volumes:
+      - .:/var/www/html
+
+  migrate:
+    build: { target: dev }
+    volumes:
+      - .:/var/www/html
+
+  # Vite dev server with HMR. Only exists in dev; production serves the bundle baked into the image.
+  vite:
+    image: node:22-alpine
+    working_dir: /var/www/html
+    command: ["sh", "-c", "npm install --no-audit --no-fund && exec npm run dev -- --host 0.0.0.0"]
+    volumes:
+      - .:/var/www/html
+      # Native binaries (tailwind oxide, rolldown) are platform-specific; keep them off the host.
+      - node_modules:/var/www/html/node_modules
+    ports:
+      - "5173:5173"
+
+  postgres:
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      # Creates the test database on first init so tests run against real Postgres, not sqlite.
+      - ./docker/postgres/init-test-db.sh:/docker-entrypoint-initdb.d/10-test-db.sh:ro
+
+  redis:
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+
+volumes:
+  node_modules:
