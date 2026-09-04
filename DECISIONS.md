@@ -68,7 +68,15 @@ reuse the existing extraction and never reach the LLM twice.
 - Postgres CHECK constraints instead of enum types: adding a status is one constraint swap.
 - Auth via Fortify rather than the official starter kit: the 2026 kit brings Wayfinder (runs PHP
   inside the Vite build), vite-plus, passkeys and two-factor, all of which would have to be
-  explained and none of which the task needs.
+  explained and none of which the task needs. Fortify itself is trimmed the same way: registration
+  and login only. Password reset, email verification, profile updates, two-factor and passkeys are
+  removed from `features`, and the migrations and published actions that served them are deleted
+  rather than left dormant.
+- Tests configure themselves with `<server force="true">` in `phpunit.xml`, not `<env>`. compose
+  hands the container the whole of .env as real environment variables; PHP exposes those in
+  `$_SERVER`, which Laravel's `env()` consults before `$_ENV`. With `<env>` the suite claimed
+  `app_test` and actually ran against the development database on the real queue. Worth writing
+  down because "the tests are isolated" was an assumption, and it was wrong until it was checked.
 - poppler's `pdfinfo` in the image (about 30 MB) to validate PDFs structurally and count pages
   before any money is spent, instead of trusting magic bytes.
 - Per-file rejection at upload time, nothing persisted for rejects: no LLM cost, no garbage rows.

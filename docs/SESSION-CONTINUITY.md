@@ -129,7 +129,8 @@ Custom code so far (everything else is the untouched Laravel 13.10 skeleton):
 | 0 Plan | done | docs/design.md, decisions confirmed by Rony 2026-09-04 |
 | 1 Containers and schema | done, verified | migrate service ran 5 migrations; ping from web handled by worker container; worker survived `docker compose restart redis` (logs one connection error, then continues); 3 replicas processed 7 pings exactly once; tests, Pint, PHPStan green |
 | 1b Scheduler | done, verified | `scheduler` service runs `schedule:work`; minute loop fires (2 ticks in 2 minutes); `--scale scheduler=2` still fires each task once, instances alternating as lock winner |
-| 2 Upload path with auth | next | see section 8 |
+| 2a Auth | done | Fortify trimmed to registration + login; 7 tests green; register exercised in the browser, lands on /uploads |
+| 2b Upload path | next | see section 8, from step 2 |
 | 3 Extraction agent | todo | LlmClient interface + fake, schema, retry policy, job, sweeper |
 | 4 Frontend | todo | React + Inertia scaffold, auth pages, list with polling, detail, states |
 | 5 Test matrix | todo | remaining rows of TDD-SPEC.md section 5 |
@@ -139,10 +140,11 @@ Custom code so far (everything else is the untouched Laravel 13.10 skeleton):
 
 Backend only; pages come in Stage 4. Work test-first in this order (details in TDD-SPEC.md):
 
-1. `composer require laravel/fortify lorisleiva/laravel-actions` inside the container. Run
-   `php artisan fortify:install`, keep only `Features::registration()`, drop the two-factor
-   migration it publishes, register views later (Stage 4). Write the auth feature tests
-   (register, login, logout, guests redirected) before wiring routes.
+1. Done. Fortify 1.39 and laravel-actions 2.12 installed; `config/fortify.php` trimmed to
+   `Features::registration()` with `home` at `/uploads`; the two-factor and passkey migrations and
+   the unused published actions deleted; login and register render placeholder blades that Stage 4
+   replaces with Inertia pages. T2.5 (guest redirect) is still open: it needs the routes from
+   step 4.
 2. `app/Enums/FailureCode.php` with `message()` for every code in PRD section 7.
 3. `tests/Fixtures/` plus a `PdfFixture` helper that builds an N-page PDF in memory.
 4. `POST /uploads` through `StoreUploads` (Action as controller) calling `ValidateUploadedFile`
@@ -172,6 +174,12 @@ Stage 3 registers a task in `routes/console.php`; register it with `onOneServer(
 - `composer create-project` refuses a non-empty directory; the repo was scaffolded in a scratch
   directory and copied in around the existing `.git`.
 - With `QUEUE_CONNECTION=sync` in tests, a forgotten `Queue::fake()` runs the job inline.
+- `phpunit.xml` must use `<server>` with `force="true"`, never `<env>`. compose passes .env into
+  the container as real environment variables, PHP puts those in `$_SERVER`, and Laravel's `env()`
+  reads `$_SERVER` before `$_ENV`. With `<env>` the suite silently ran as `APP_ENV=local` against
+  the development database and the real Redis queue. If you add a variable there use `<server>`,
+  and re-check with `dump(app()->environment(), config('database.connections.pgsql.database'))`.
+- Fortify's login throttle returns 429 from middleware, not a validation error on the session.
 - `LOG_CHANNEL=stderr`, so there is no `storage/logs/laravel.log`. Read application output with
   `docker compose logs <service>`, not by grepping a file.
 - `onOneServer()` on a closure throws `LogicException` unless `name()` is called first. Scheduling
