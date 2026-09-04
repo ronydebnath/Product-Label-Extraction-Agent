@@ -155,8 +155,15 @@ Stage 2 is complete. Work test-first in this order (rows T3.1 to T3.21 in TDD-SP
 7. `RequeueStaleUploads` command, registered in `routes/console.php` with `onOneServer()`. The
    `scheduler` container is already running and currently has nothing to fire.
 
-Open question for Rony, needed before step 3: which model the OpenAI key can actually reach. The
-plan is a mini-tier vision model behind `OPENAI_MODEL`, verified with one real call.
+Resolved 2026-09-04 by probing the key: it reaches 132 models. The default is
+`OPENAI_MODEL=gpt-5.4-mini`, chosen on measured latency, token cost and allergen accuracy against a
+real UAT spec sheet (table in DECISIONS.md). Native PDF via `input_file` and strict `json_schema`
+are both confirmed working against the live API.
+
+Known prompt defect to fix in step 5: `gpt-5-mini` copied `contains` into `may_contain`. The prompt
+must say that `may_contain` is only for an explicit "may contain" or traces statement and is an
+empty array otherwise. `gpt-5.4-mini` got this right unprompted, but the instruction should not
+depend on the model.
 
 Timing ladder to keep consistent: LLM HTTP timeout 60 s < job timeout 90 s < lease stale 120 s <
 `REDIS_QUEUE_RETRY_AFTER` 150 s.
@@ -184,6 +191,13 @@ Decided 2026-09-04: the sweeper is fired by the `scheduler` compose service runn
   the development database and the real Redis queue. If you add a variable there use `<server>`,
   and re-check with `dump(app()->environment(), config('database.connections.pgsql.database'))`.
 - Fortify's login throttle returns 429 from middleware, not a validation error on the session.
+- `docker compose restart` does NOT re-read `.env`; the container keeps the environment it was
+  created with. Only `up -d` (or `--force-recreate`) picks up a changed value. This cost an hour
+  of chasing a "dead" OpenAI key that was live on the host and stale in the container. To compare
+  a secret across the boundary without printing it:
+  `docker compose exec -T web sh -c 'printf "%s" "$OPENAI_API_KEY" | sha256sum'` against the same
+  hash of the value in `.env`. Note that OpenAI's 401 masks the middle of the key and echoes only
+  the prefix and last four characters, so a wrong key can look identical to the right one.
 - `UploadedFile::fake()` reports a mime type guessed from the filename, so it cannot test sniffing.
   Use the `uploadedBytes()` / `sampleFile()` helpers in `tests/Pest.php`, which build a real
   `UploadedFile` over real bytes with `test: true`.

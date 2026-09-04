@@ -52,6 +52,31 @@ volume shared by web and worker. In production it must be object storage (any S3
 bucket): container filesystems are ephemeral and workers do not share a disk with web. Files are
 stored under a uuid path outside the web root; the client's filename is display-only.
 
+## Model choice
+
+`gpt-5.4-mini`, behind `OPENAI_MODEL` so it can be changed without a deploy. Chosen by running the
+same real spec sheet through the candidates rather than by reputation:
+
+| | gpt-5-mini | gpt-5.4-mini |
+| --- | --- | --- |
+| latency, 3-page PDF | 16.1 s | 3.4 s |
+| output tokens | 1170 (832 reasoning) | 186 (0 reasoning) |
+| allergen split | wrong: copied `contains` into `may_contain` | correct: `may_contain` empty |
+
+Both read all three pages, both returned schema-valid JSON, and both caught the document's
+`VITAL NOT COMPLETED` allergen statement and inferred allergens from the ingredient list with a
+warning saying so. The newer mini is five times faster for a sixth of the output tokens and got the
+allergen structure right, so the cheaper model is also the better one here.
+
+PDFs go to the Responses API as `input_file` with a base64 data URI. That is what makes the
+page-count cap meaningful: OpenAI rasterises the document itself, so every page is seen in one
+request and the worker image needs no Ghostscript, Imagick or GD.
+
+Structured output is a strict `json_schema`, and the response is validated again server-side
+against the same schema. The API accepts `maxItems` and `maxLength`, but accepting a keyword is not
+the same as enforcing it, and a model is an untrusted dependency either way: the caps on `warnings`
+are enforced by us.
+
 ## Upload validation
 
 Checks run cheapest first: PHP's own upload result, then size, then sniffed type, then structure.
