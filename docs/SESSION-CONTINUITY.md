@@ -84,6 +84,9 @@ Custom code so far (everything else is the untouched Laravel 13.10 skeleton):
 |---|---|
 | `Dockerfile`, `.dockerignore` | Multi-stage image (base, vendor, assets, runtime, dev); stage notes at the top |
 | `compose.yaml`, `compose.override.yaml` | Prod-shaped topology plus dev override |
+| `docs/ARCHITECTURE.md` | Processes, module boundaries, schema, state machine, invariants |
+| `docs/USAGE.md` | Every command, and how to debug a stuck upload |
+| `docs/DEPLOYMENT.md` | Deployment plan: topology, release order, config, alerting |
 | `docker/entrypoint.sh` | Role by argument: `web`, `horizon`, or any command; caches config in prod only |
 | `docker/nginx`, `docker/php`, `docker/supervisor`, `docker/postgres` | Non-root nginx, php-fpm pool (replaces stock www.conf), supervisord, test-db init |
 | `config/uploads.php` | Disk choice, caps, accepted MIME types (single source for the limits) |

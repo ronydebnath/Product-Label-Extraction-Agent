@@ -1,118 +1,141 @@
 # Label Extraction Agent
 
-Upload product label images or PDFs; a queued agent calls an LLM and turns each one into
-validated, structured product data (name, brand, ingredients, allergens, net weight).
+Upload product label images or PDFs; a queued agent sends each one to an LLM and turns it into
+validated, structured product data — name, brand, ingredients, allergens, net weight.
 
-Label Extraction Agent for SupplyScope. Product requirements: [docs/PRD.md](docs/PRD.md).
-Technical decisions and trade-offs: [DECISIONS.md](DECISIONS.md).
+Built for the SupplyScope trial task. The LLM is treated throughout as an untrusted, unreliable
+dependency: slow, absent, rate-limited, or answering with nonsense.
 
-## Topology
+| | |
+|---|---|
+| **Run it** | [Quick start](#quick-start) — Docker and nothing else |
+| **How it works** | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — processes, data model, state machine, boundaries |
+| **Commands** | [docs/USAGE.md](docs/USAGE.md) — every command, and debugging a stuck upload |
+| **Ship it** | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — topology, release order, what to alert on |
+| **Why** | [DECISIONS.md](DECISIONS.md) — 50k uploads, queue architecture, LLM failures, trade-offs |
+| **Requirements** | [docs/PRD.md](docs/PRD.md) |
 
-Everything is defined in [compose.yaml](compose.yaml); [compose.override.yaml](compose.override.yaml)
-adds development conveniences and is merged automatically by plain `docker compose up`.
+## Quick start
 
-| Service | Image | Runs | Notes |
-|---|---|---|---|
-| `web` | this repo's Dockerfile, `runtime` target | nginx + php-fpm (supervisord) | HTTP only. Never executes a job. Port 8080. |
-| `worker` | the **same image** | `php artisan horizon` | The only process that runs jobs. Scale with `--scale worker=N`. |
-| `scheduler` | the same image | `php artisan schedule:work` | Fires due tasks (the stuck-upload sweeper). Exactly one instance; never scaled. |
-| `migrate` | the same image | `php artisan migrate --force`, once | One-shot; web and worker wait for it to finish. |
-| `postgres` | `postgres:17-alpine` | database | Healthcheck gates app startup. Named volume `pgdata`. |
-| `redis` | `redis:8-alpine` | queue, cache, sessions | Append-only persistence so jobs survive a restart. Named volume `redisdata`. |
-| `vite` | `node:22-alpine` (dev only) | Vite dev server with HMR | Port 5173. Production serves the bundle baked into the image. |
-| `adminer` | `adminer:5` (dev only) | Database console | Port 8081. Dev override only; it is an unauthenticated door into Postgres. |
-
-Uploaded files live on the `uploads` named volume, mounted into both web and worker at
-`storage/app/private`. That only works because both run on one host; see DECISIONS.md for why
-production points `UPLOADS_DISK` at object storage instead.
-
-Web, worker and scheduler are one image, one entrypoint ([docker/entrypoint.sh](docker/entrypoint.sh)),
-differing only by the argument (`web`, `horizon` or `scheduler`). The Dockerfile's stages and what
-each buys are described at the top of [Dockerfile](Dockerfile). Development builds the `dev` target
-and tags it `label-extraction/app:dev`, so building the production image never replaces the one the
-dev stack is running.
-
-## Run it
-
-Requirements: Docker with Compose v2. Nothing else; PHP, Composer and Node run inside containers.
+Requirements: Docker with Compose v2. PHP, Composer and Node all run inside containers.
 
 ```sh
-cp .env.example .env                                  # add OPENAI_API_KEY when you reach the extraction stage
+cp .env.example .env
 docker compose run --rm --no-deps web php artisan key:generate
+# add a real OPENAI_API_KEY to .env
 docker compose up
 ```
 
-Then open http://localhost:8080. The Horizon dashboard is at http://localhost:8080/horizon, and
-Adminer is at http://localhost:8081 (server `postgres`, database and credentials from `.env`).
-Both are development conveniences; only Horizon exists in the production topology.
+Open http://localhost:8080, register an account, and drop a label or spec sheet onto the page.
+Migrations run automatically in a one-shot service before the app starts.
 
-Prove the queue is out-of-process:
+| | |
+|---|---|
+| Application | http://localhost:8080 |
+| Horizon dashboard | http://localhost:8080/horizon |
+| Adminer (dev only) | http://localhost:8081 — server `postgres`, credentials from `.env` |
+
+## Topology
+
+[compose.yaml](compose.yaml) is the production-shaped topology;
+[compose.override.yaml](compose.override.yaml) adds development conveniences and is merged
+automatically by a plain `docker compose up`.
+
+| Service | Image | Runs | Notes |
+|---|---|---|---|
+| `web` | this repo's Dockerfile, `runtime` target | nginx + php-fpm under supervisord | HTTP only. **Never executes a job.** Port 8080. |
+| `worker` | the **same image** | `php artisan horizon` | The only process that runs jobs. `--scale worker=N`. |
+| `scheduler` | the same image | `php artisan schedule:work` | Fires the stuck-upload sweeper. Exactly one; never scaled. |
+| `migrate` | the same image | `php artisan migrate --force`, once | One-shot. Everything else waits for it to succeed. |
+| `postgres` | `postgres:17-alpine` | uploads + extractions | Healthcheck gates app startup. Volume `pgdata`. |
+| `redis` | `redis:8-alpine` | queue, cache, sessions | Append-only, `noeviction`: a queue must fail loudly, never drop jobs. Volume `redisdata`. |
+| `vite` | `node:22-alpine` *(dev only)* | Vite dev server with HMR | Port 5173. Production bakes the bundle into the image. |
+| `adminer` | `adminer:5` *(dev only)* | database console | Port 8081. Absent from `compose.yaml`: an unauthenticated door into Postgres. |
+
+Web, worker and scheduler are **one image and one entrypoint**
+([docker/entrypoint.sh](docker/entrypoint.sh)), differing only by the argument (`web`, `horizon`,
+`scheduler`). Development builds the `dev` target under its own tag, so building the production
+image never replaces the one the dev stack is running.
+
+Uploaded files live on the `uploads` named volume, mounted into web and worker at
+`storage/app/private` — outside the web root. That works only because both run on one host; in
+production `UPLOADS_DISK` points at object storage.
+
+## Prove the interesting parts
+
+The queue is genuinely out-of-process — dispatched from `web`, executed in `worker`:
 
 ```sh
-docker compose exec web php artisan queue:ping      # dispatches from the web container
-docker compose logs worker | grep queue.pong        # handled_by is the worker container's hostname
+docker compose exec web php artisan queue:ping
+docker compose logs worker | grep queue.pong        # handled_by is the worker's hostname
 ```
 
-Scale the worker and watch jobs spread across replicas, each processed exactly once:
+Three workers, no double processing:
 
 ```sh
 docker compose up -d --scale worker=3
 ```
 
-Production-shaped run (no bind mounts, baked assets, cached config, opcache without file checks):
+Production-shaped run — no bind mounts, baked assets, cached config:
 
 ```sh
 docker compose -f compose.yaml up --build
 ```
 
-Two things that bite. A container reads `.env` when it is **created**, so after changing a value run
-`docker compose up -d --force-recreate <service>`; `restart` keeps the old environment. And Horizon
-does not hot-reload PHP, so after changing worker code run `docker compose restart worker`.
+## How a file is handled
 
-## Upload limits
+1. **Validated by its bytes.** Sniffed MIME and structure, never the extension. PDFs must parse
+   under `pdfinfo`; images must present a readable header. Caps: 10 MB per file, 20 files per
+   request, 10 pages per PDF, 25 megapixels per image — all from
+   [config/uploads.php](config/uploads.php), which is also what the UI quotes.
+2. **Stored under a generated uuid** on a private disk. The client's filename is display-only.
+3. **One row, one job**, dispatched after the row is committed and carrying only its id.
+4. **Claimed by one worker** with a compare-and-swap plus a lease, so a redelivered or duplicated
+   job finds the row taken and does nothing.
+5. **Sent to the model** as native PDF or image input, asking for strict JSON Schema output, which
+   is then validated again server-side against that same schema.
+6. **Polled by the page** every 2s until nothing is moving, then not at all.
 
-10 MB per file, 20 files per request, 10 pages per PDF, 25 megapixels per image. JPEG, PNG, WebP
-and PDF only, decided by sniffing the bytes rather than by the extension. All of it comes from
-[config/uploads.php](config/uploads.php), which is also what the user-facing messages quote.
+Validation is per file: one bad file in a batch of twenty does not cost you the other nineteen, and
+each rejection names the file and the reason.
 
-`POST /uploads` validates each file separately and answers 201 with `accepted` and `rejected`
-lists, or 422 when nothing was accepted.
-
-## The extraction agent
-
-The worker sends each file to the model behind an `LlmClient` interface, validates the answer
-against the same JSON Schema it asked for, and records tokens and latency. `OPENAI_MODEL` selects
-the model; the default was chosen by measurement (see [DECISIONS.md](DECISIONS.md)).
-
-```sh
-docker compose logs -f worker                       # every line carries the upload id
-docker compose exec web php artisan uploads:sweep   # recover lost jobs by hand; the scheduler runs it every minute
-```
+## Failure handling
 
 Transient failures (429, 408, 5xx, timeouts) are retried by the queue with exponential backoff and
-jitter, up to 5 attempts, honouring `Retry-After`. Permanent ones (bad request, unparsable or
-schema-invalid output, refusal, not a label) fail immediately with a specific reason.
+jitter — ~10s, 30s, 90s, 270s, ±25% — up to 5 attempts, honouring `Retry-After`. Permanent ones
+(rejected request, unparsable or schema-invalid output, refusal, not a label) fail immediately.
+There is no repair-retry; the reasoning is in [DECISIONS.md](DECISIONS.md).
+
+Users only ever see a fixed sentence keyed by failure code. Exception text, HTTP bodies and stack
+traces stay in `last_error` and the logs, and every log line carries the upload id as a correlation
+id.
 
 ## Tests and static analysis
 
-All run inside the container against the real Postgres (database `app_test`) and Redis (db 9):
+Against real Postgres (`app_test`) and real Redis (db 9) — no sqlite anywhere.
 
 ```sh
-docker compose exec web php artisan test
+docker compose exec web php artisan test            # 124 tests, 403 assertions
 docker compose exec web vendor/bin/pint --test
-docker compose exec web vendor/bin/phpstan analyse
-docker compose exec vite npm run types      # tsc --noEmit
-docker compose exec vite npm run lint       # eslint
+docker compose exec web vendor/bin/phpstan analyse  # Larastan level 6
+docker compose exec vite npm run types              # tsc --noEmit
+docker compose exec vite npm run lint               # eslint
 ```
+
+The suite covers the unhappy paths deliberately: unsupported and disguised file types, corrupt
+files, oversized and over-long documents, malformed and schema-invalid LLM output, transient
+failures with retry and exhaustion, permanent failures, redelivery, stale leases, and a lost queue.
 
 ## Stack
 
-PHP 8.4, Laravel 13.30, PostgreSQL 17, Redis 8, Laravel Horizon 5.48, Laravel Actions, Pest 5,
-Pint, Larastan 3; React 19, TypeScript, Inertia 3, Tailwind 4, Radix UI, TanStack Query, Vite 8.
-Every version named in the brief exists and installed cleanly; nothing was substituted.
+PHP 8.4, Laravel 13.30, PostgreSQL 17, Redis 8, Horizon 5.48, Laravel Actions, Pest 5, Pint,
+Larastan 3; React 19, TypeScript 6, Inertia 3, Tailwind 4, Radix UI, TanStack Query, Vite 8.
 
 ## Scope cuts
 
-Listed with reasons in [docs/PRD.md](docs/PRD.md#11-out-of-scope-with-reasons); the short version:
-no manual retry button, no websocket push, no hosting deployment yet, no frontend unit tests
-(TypeScript strict + ESLint instead), no virus scanning, and password reset / 2FA left out of auth.
+Deliberate, with reasons in [docs/PRD.md](docs/PRD.md#11-out-of-scope-with-reasons): no manual retry
+button, no websocket push, no virus scanning, no frontend unit tests (TypeScript strict and ESLint
+instead), no password reset or 2FA, and no cloud deployment yet —
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) is the plan rather than a transcript.
+
+The one piece of the 50,000-upload answer that is described rather than built is the rate-limiting queue middleware. It is ten lines, and it cannot be honestly demonstrated without a real rate limit to hit.
