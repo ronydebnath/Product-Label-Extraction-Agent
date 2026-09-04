@@ -1,24 +1,33 @@
 # Development overrides. `docker compose up` merges this automatically.
 # Everything here is convenience: bind mounts for hot reload, the Vite dev server, exposed DB ports.
+#
+# The dev image is tagged separately from the production one. Both are built from the same
+# Dockerfile at different targets, and sharing one tag means `docker compose -f compose.yaml build`
+# silently replaces the dev image with the production stage -- which then runs the whole stack with
+# opcache timestamp validation off, serving stale bytecode for every file you edit.
 
 services:
   web:
     build: { target: dev }
+    image: label-extraction/app:dev
     volumes:
       - .:/var/www/html
 
   worker:
     build: { target: dev }
+    image: label-extraction/app:dev
     volumes:
       - .:/var/www/html
 
   scheduler:
     build: { target: dev }
+    image: label-extraction/app:dev
     volumes:
       - .:/var/www/html
 
   migrate:
     build: { target: dev }
+    image: label-extraction/app:dev
     volumes:
       - .:/var/www/html
 
