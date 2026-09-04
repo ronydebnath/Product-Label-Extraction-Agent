@@ -90,10 +90,10 @@ Status: `[ ]` todo, `[x]` done. Mandated by the brief: (M). Write them in the li
 ### Stage 2: auth and upload path
 
 Auth (FR-1, FR-2)
-- [ ] T2.1 Registers a user with name, email, password and starts a session.
-- [ ] T2.2 Rejects registration with a duplicate email or a short password.
-- [ ] T2.3 Logs in with valid credentials; rejects invalid ones; throttles after repeated failures.
-- [ ] T2.4 Logs out and invalidates the session.
+- [x] T2.1 Registers a user with name, email, password and starts a session.
+- [x] T2.2 Rejects registration with a duplicate email or a short password.
+- [x] T2.3 Logs in with valid credentials; rejects invalid ones; throttles after repeated failures.
+- [x] T2.4 Logs out and invalidates the session.
 - [ ] T2.5 Guests are redirected from `/uploads` and get 401 JSON from `/api/uploads`.
 
 Upload rejection (FR-4 to FR-7)

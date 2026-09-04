@@ -73,7 +73,7 @@ return [
     |
     */
 
-    'home' => '/home',
+    'home' => '/uploads',
 
     /*
     |--------------------------------------------------------------------------
@@ -116,8 +116,6 @@ return [
 
     'limiters' => [
         'login' => 'login',
-        'two-factor' => 'two-factor',
-        'passkeys' => 'passkeys',
     ],
 
     /*
@@ -135,23 +133,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Passkeys
-    |--------------------------------------------------------------------------
-    |
-    | These settings configure Fortify's passkey (WebAuthn) support. Passkeys
-    | allow users to sign in without needing to remember credentials since
-    | they use public-key cryptography - making them immune to breaches.
-    |
-    */
-
-    'passkeys' => [
-        'relying_party_id' => parse_url(config('app.url'), PHP_URL_HOST),
-        'allowed_origins' => [config('app.url')],
-        'timeout' => 60000,
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
     | Features
     |--------------------------------------------------------------------------
     |
@@ -161,20 +142,12 @@ return [
     |
     */
 
+    // Registration only. Login and logout are not features; Fortify always routes them. Password
+    // reset, email verification, profile/password updates, two-factor and passkeys are all out of
+    // scope for this task (docs/PRD.md section 11) and every one of them would add routes, columns
+    // and a mail or WebAuthn dependency we would then have to justify.
     'features' => [
         Features::registration(),
-        Features::resetPasswords(),
-        // Features::emailVerification(),
-        Features::updateProfileInformation(),
-        Features::updatePasswords(),
-        Features::twoFactorAuthentication([
-            'confirm' => true,
-            'confirmPassword' => true,
-            // 'window' => 0,
-        ]),
-        Features::passkeys([
-            'confirmPassword' => true,
-        ]),
     ],
 
 ];
