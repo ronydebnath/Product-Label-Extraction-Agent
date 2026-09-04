@@ -20,6 +20,7 @@ adds development conveniences and is merged automatically by plain `docker compo
 | `postgres` | `postgres:17-alpine` | database | Healthcheck gates app startup. Named volume `pgdata`. |
 | `redis` | `redis:8-alpine` | queue, cache, sessions | Append-only persistence so jobs survive a restart. Named volume `redisdata`. |
 | `vite` | `node:22-alpine` (dev only) | Vite dev server with HMR | Port 5173. Production serves the bundle baked into the image. |
+| `adminer` | `adminer:5` (dev only) | Database console | Port 8081. Dev override only; it is an unauthenticated door into Postgres. |
 
 Uploaded files live on the `uploads` named volume, mounted into both web and worker at
 `storage/app/private`. That only works because both run on one host; see DECISIONS.md for why
@@ -27,7 +28,9 @@ production points `UPLOADS_DISK` at object storage instead.
 
 Web, worker and scheduler are one image, one entrypoint ([docker/entrypoint.sh](docker/entrypoint.sh)),
 differing only by the argument (`web`, `horizon` or `scheduler`). The Dockerfile's stages and what
-each buys are described at the top of [Dockerfile](Dockerfile).
+each buys are described at the top of [Dockerfile](Dockerfile). Development builds the `dev` target
+and tags it `label-extraction/app:dev`, so building the production image never replaces the one the
+dev stack is running.
 
 ## Run it
 
@@ -39,7 +42,9 @@ docker compose run --rm --no-deps web php artisan key:generate
 docker compose up
 ```
 
-Then open http://localhost:8080. The Horizon dashboard is at http://localhost:8080/horizon.
+Then open http://localhost:8080. The Horizon dashboard is at http://localhost:8080/horizon, and
+Adminer is at http://localhost:8081 (server `postgres`, database and credentials from `.env`).
+Both are development conveniences; only Horizon exists in the production topology.
 
 Prove the queue is out-of-process:
 
@@ -60,8 +65,9 @@ Production-shaped run (no bind mounts, baked assets, cached config, opcache with
 docker compose -f compose.yaml up --build
 ```
 
-Changing `.env` needs `docker compose up -d` again (containers read it at creation), and Horizon
-needs a restart after PHP changes in dev: `docker compose restart worker`.
+Two things that bite. A container reads `.env` when it is **created**, so after changing a value run
+`docker compose up -d --force-recreate <service>`; `restart` keeps the old environment. And Horizon
+does not hot-reload PHP, so after changing worker code run `docker compose restart worker`.
 
 ## Upload limits
 

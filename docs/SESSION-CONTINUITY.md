@@ -59,7 +59,7 @@ security of untrusted input, scalability reasoning, unhappy-path tests, and clea
 ## 4. Command cheat sheet
 
 ```sh
-docker compose up -d                       # dev stack (override merged): web, worker, scheduler, migrate, postgres, redis, vite
+docker compose up -d                       # dev stack (override merged): web, worker, scheduler, migrate, postgres, redis, vite, adminer
 docker compose up -d --build               # after Dockerfile or docker/ changes
 docker compose restart worker              # after PHP changes; Horizon does not hot-reload
 docker compose up -d --scale worker=3      # prove single processing across replicas
@@ -70,6 +70,7 @@ docker compose exec web composer require vendor/package
 docker compose exec vite npm install some-package
 docker compose exec web php artisan queue:ping && docker compose logs worker | grep queue.pong
 docker compose logs -f worker              # job output; web logs are nginx + php-fpm
+open http://localhost:8081                 # Adminer, dev only: server "postgres", creds from .env
 docker compose -f compose.yaml up --build  # production-shaped run without the dev override
 ```
 
@@ -134,28 +135,20 @@ Custom code so far (everything else is the untouched Laravel 13.10 skeleton):
 | 3 Extraction agent | done, verified | 107 tests green; three real UAT spec sheets extracted end to end through the live API in the running stack, all completed on attempt 1; the falafel sheet's page-3 allergen table was correctly flagged as conflicting with its ingredient list |
 | 4 Frontend | done, verified | Inertia 3.7 + React 19.2 + TS 6 + Tailwind 4 + TanStack Query; 124 PHP tests, tsc and ESLint clean, production image builds; login, list, detail and the polling snapshot all exercised against the running stack |
 | 5 Test matrix | done | every row in TDD-SPEC.md section 5 is ticked; 124 tests, 403 assertions |
-| 6 Docs and review brief | todo | trim DECISIONS.md to a page, README final, review-call brief |
+| 6 Docs | done | DECISIONS.md rewritten around the brief's four questions (1,066 words); README corrected
 
-## 8. Next action (Stage 6: documentation and the review brief)
+## 8. Next action
 
-The application is feature-complete and every backlog row is green. What is left is the writing,
-and one requirement of the brief that is not yet answered anywhere.
+All six stages are complete and every backlog row in TDD-SPEC.md is green. What remains is Rony's
+call, not more building:
 
-1. **DECISIONS.md does not yet answer the 50,000 simultaneous uploads question.** The brief asks
-   for it by name and it is the single biggest gap. The decided answer (Stage 0) is to document
-   rate-limiting queue middleware rather than build it: `Redis::throttle()` on the job to cap
-   concurrent LLM calls, a separate queue per priority, `--scale worker=N` for throughput, and the
-   observation that the bottleneck is the model's rate limit rather than PHP. Write it with the
-   numbers this build actually produces: ~3-5s per document, 5 processes per worker container.
-2. Trim DECISIONS.md to about a page. It has grown past that, and the brief asks for one page.
-3. README final pass: it should still map one-to-one onto the compose services.
-4. Look at the UI in a browser. Loading, empty, error and per-file rejection states are all
-   implemented, but no human has seen them; the automated checks only prove they render.
-5. Write the review-call brief: the questions likely to be asked and the honest answers, including
-   the things deliberately not built.
+1. Deployment is still parked (Fly.io was the candidate). Nothing Fly-specific has been written,
+   and the app is deliberately host-agnostic: `UPLOADS_DISK` points at object storage, migrations
+   are a release step, and the scheduler is already its own process.
+2. If anything else is added, it starts as a new row in TDD-SPEC.md section 5 with a failing test.
 
-Nothing in the code is known to be incomplete. If something turns up, it goes in TDD-SPEC.md
-section 5 as a new row with a failing test first.
+The most defensible remaining gap is the rate-limiting queue middleware for the 50k scenario:
+documented in DECISIONS.md, deliberately not built.
 
 ## 9. Gotchas already paid for
 
@@ -177,6 +170,13 @@ section 5 as a new row with a failing test first.
   the development database and the real Redis queue. If you add a variable there use `<server>`,
   and re-check with `dump(app()->environment(), config('database.connections.pgsql.database'))`.
 - Fortify's login throttle returns 429 from middleware, not a validation error on the session.
+- The dev and production images MUST NOT share a tag. `docker compose -f compose.yaml build` builds
+  the `runtime` target, and with a shared tag it silently replaces the dev image; the stack then
+  runs with `opcache.validate_timestamps=Off` and serves stale bytecode for every file you edit.
+  The override now tags dev as `label-extraction/app:dev`. Symptom: edits appear to do nothing.
+- `@viteReactRefresh` must appear in the Blade layout before `@vite(...)`, or `@vitejs/plugin-react`
+  throws before React mounts and the page is blank. Production builds do not use refresh, so every
+  automated check passes while the browser shows nothing.
 - Chaining `->beforeEach()` twice on `pest()` REPLACES the first closure instead of adding to it.
   Everything shared belongs in one closure in `tests/Pest.php`; getting this wrong silently
   unbound the fake LLM client and 23 tests started resolving the real OpenAI client.

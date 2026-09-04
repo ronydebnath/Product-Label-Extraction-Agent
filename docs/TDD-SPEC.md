@@ -165,7 +165,9 @@ Sweeper (FR-32)
 
 ### Stage 5: remaining matrix
 
-- [ ] Every row above green; add any case discovered during Stage 4.
+- [x] Every row above green. 124 tests, 403 assertions. Cases added while building Stage 4:
+      the guest 401 on the polling endpoint, junk and foreign ids in the `ids` list, and the
+      assertion that `last_error` is absent from both the rendered page and the JSON.
 - [x] `tsc --noEmit` and ESLint clean, and `npm run build` produces a bundle.
 
 ## 6. Anti-patterns we refuse

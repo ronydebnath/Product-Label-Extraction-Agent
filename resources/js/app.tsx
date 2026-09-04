@@ -1,3 +1,4 @@
+import { Provider as TooltipProvider } from '@radix-ui/react-tooltip'
 import { createInertiaApp } from '@inertiajs/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ComponentType } from 'react'
@@ -32,7 +33,9 @@ void createInertiaApp({
     setup({ el, App, props }) {
         createRoot(el).render(
             <QueryClientProvider client={queryClient}>
-                <App {...props} />
+                <TooltipProvider delayDuration={150}>
+                    <App {...props} />
+                </TooltipProvider>
             </QueryClientProvider>,
         )
     },
