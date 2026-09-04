@@ -53,11 +53,9 @@ RUN --mount=type=cache,target=/tmp/composer-cache \
     composer install --no-dev --no-scripts --no-autoloader --prefer-dist --no-interaction --no-progress
 
 COPY . .
-# --no-scripts above skipped package discovery and asset publishing; do them explicitly.
+# --no-scripts above also skipped package discovery; run it explicitly so the manifest is baked.
 RUN composer dump-autoload --no-dev --optimize \
-    && php artisan package:discover --ansi \
-    && mkdir -p public/vendor \
-    && php artisan vendor:publish --tag=laravel-assets --force --ansi
+    && php artisan package:discover --ansi
 
 # ---------------------------------------------------------------------------- assets
 FROM node:${NODE_VERSION}-alpine AS assets
@@ -76,7 +74,6 @@ ENV APP_ENV=production
 COPY --chown=app:app . .
 COPY --from=vendor --chown=app:app /var/www/html/vendor          ./vendor
 COPY --from=vendor --chown=app:app /var/www/html/bootstrap/cache ./bootstrap/cache
-COPY --from=vendor --chown=app:app /var/www/html/public/vendor   ./public/vendor
 COPY --from=assets --chown=app:app /app/public/build             ./public/build
 
 USER app

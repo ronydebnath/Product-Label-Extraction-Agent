@@ -7,12 +7,10 @@ set -eu
 cd /var/www/html
 
 if [ "${APP_ENV:-production}" = "local" ]; then
-    # Dev only. The bind mount hides the image's vendor/ on a fresh checkout, and package
-    # assets (Horizon's dashboard) live in the git-ignored public/vendor.
+    # Dev only: the bind mount hides the image's vendor/ on a fresh checkout.
     if [ ! -f vendor/autoload.php ]; then
         composer install --no-interaction --prefer-dist --no-progress
     fi
-    php artisan vendor:publish --tag=laravel-assets --force --quiet
     # A previous production-style boot may have left cached config that would shadow .env edits.
     php artisan config:clear --quiet
     php artisan route:clear --quiet
