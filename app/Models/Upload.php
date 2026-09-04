@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
@@ -20,13 +21,13 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string $storage_path
  * @property UploadStatus $status
  * @property int $attempts
- * @property \Illuminate\Support\Carbon|null $processing_started_at
+ * @property Carbon|null $processing_started_at
  * @property string|null $last_error
  * @property string|null $failure_code
- * @property \Illuminate\Support\Carbon|null $completed_at
- * @property \Illuminate\Support\Carbon|null $failed_at
- * @property \Illuminate\Support\Carbon $created_at
- * @property \Illuminate\Support\Carbon $updated_at
+ * @property Carbon|null $completed_at
+ * @property Carbon|null $failed_at
+ * @property Carbon $created_at
+ * @property Carbon $updated_at
  */
 class Upload extends Model
 {

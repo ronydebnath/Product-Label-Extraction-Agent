@@ -1,58 +1,85 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Label Extraction Agent
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Upload product label images or PDFs; a queued agent calls an LLM and turns each one into
+validated, structured product data (name, brand, ingredients, allergens, net weight).
 
-## About Laravel
+Trial task for SupplyScope. Product requirements: [docs/PRD.md](docs/PRD.md).
+Technical decisions and trade-offs: [DECISIONS.md](DECISIONS.md).
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Topology
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Everything is defined in [compose.yaml](compose.yaml); [compose.override.yaml](compose.override.yaml)
+adds development conveniences and is merged automatically by plain `docker compose up`.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+| Service | Image | Runs | Notes |
+|---|---|---|---|
+| `web` | this repo's Dockerfile, `runtime` target | nginx + php-fpm (supervisord) | HTTP only. Never executes a job. Port 8080. |
+| `worker` | the **same image** | `php artisan horizon` | The only process that runs jobs. Scale with `--scale worker=N`. |
+| `migrate` | the same image | `php artisan migrate --force`, once | One-shot; web and worker wait for it to finish. |
+| `postgres` | `postgres:17-alpine` | database | Healthcheck gates app startup. Named volume `pgdata`. |
+| `redis` | `redis:8-alpine` | queue, cache, sessions | Append-only persistence so jobs survive a restart. Named volume `redisdata`. |
+| `vite` | `node:22-alpine` (dev only) | Vite dev server with HMR | Port 5173. Production serves the bundle baked into the image. |
 
-## Learning Laravel
+Uploaded files live on the `uploads` named volume, mounted into both web and worker at
+`storage/app/private`. That only works because both run on one host; see DECISIONS.md for why
+production points `UPLOADS_DISK` at object storage instead.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+Web and worker are one image, one entrypoint ([docker/entrypoint.sh](docker/entrypoint.sh)),
+differing only by the argument (`web` or `horizon`). The Dockerfile's stages and what each buys
+are described at the top of [Dockerfile](Dockerfile).
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Run it
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+Requirements: Docker with Compose v2. Nothing else; PHP, Composer and Node run inside containers.
 
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+```sh
+cp .env.example .env                                  # add OPENAI_API_KEY when you reach the extraction stage
+docker compose run --rm --no-deps web php artisan key:generate
+docker compose up
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Then open http://localhost:8080. The Horizon dashboard is at http://localhost:8080/horizon.
 
-## Contributing
+Prove the queue is out-of-process:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```sh
+docker compose exec web php artisan queue:ping      # dispatches from the web container
+docker compose logs worker | grep queue.pong        # handled_by is the worker container's hostname
+```
 
-## Code of Conduct
+Scale the worker and watch jobs spread across replicas, each processed exactly once:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```sh
+docker compose up -d --scale worker=3
+```
 
-## Security Vulnerabilities
+Production-shaped run (no bind mounts, baked assets, cached config, opcache without file checks):
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```sh
+docker compose -f compose.yaml up --build
+```
 
-## License
+Changing `.env` needs `docker compose up -d` again (containers read it at creation), and Horizon
+needs a restart after PHP changes in dev: `docker compose restart worker`.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## Tests and static analysis
+
+All run inside the container against the real Postgres (database `app_test`) and Redis (db 9):
+
+```sh
+docker compose exec web php artisan test
+docker compose exec web vendor/bin/pint --test
+docker compose exec web vendor/bin/phpstan analyse
+```
+
+## Stack
+
+PHP 8.4, Laravel 13.30, PostgreSQL 17, Redis 8, Laravel Horizon 5.48, Laravel Actions, Pest 5,
+Pint, Larastan 3; React 19, TypeScript, Inertia 3, Tailwind 4, Radix UI, TanStack Query, Vite 8.
+Every version named in the brief exists and installed cleanly; nothing was substituted.
+
+## Scope cuts
+
+Listed with reasons in [docs/PRD.md](docs/PRD.md#11-out-of-scope-with-reasons); the short version:
+no manual retry button, no websocket push, no hosting deployment yet, no frontend unit tests
+(TypeScript strict + ESLint instead), no virus scanning, and password reset / 2FA left out of auth.

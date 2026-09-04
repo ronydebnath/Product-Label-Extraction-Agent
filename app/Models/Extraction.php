@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * @property string $id
@@ -16,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $input_tokens
  * @property int|null $output_tokens
  * @property int|null $duration_ms
- * @property \Illuminate\Support\Carbon $created_at
+ * @property Carbon $created_at
  */
 class Extraction extends Model
 {

@@ -34,7 +34,7 @@ RUN addgroup -g 1000 app && adduser -u 1000 -G app -D -h /var/www/html app \
 WORKDIR /var/www/html
 
 COPY docker/php/php.ini         /usr/local/etc/php/conf.d/zz-app.ini
-COPY docker/php/fpm-pool.conf   /usr/local/etc/php-fpm.d/zz-app.conf
+COPY docker/php/fpm-pool.conf   /usr/local/etc/php-fpm.d/www.conf
 COPY docker/nginx/nginx.conf    /etc/nginx/nginx.conf
 COPY docker/supervisor/web.conf /etc/supervisor/web.conf
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint
