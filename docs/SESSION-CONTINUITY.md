@@ -128,6 +128,7 @@ Custom code so far (everything else is the untouched Laravel 13.10 skeleton):
 |---|---|---|
 | 0 Plan | done | docs/design.md, decisions confirmed by Rony 2026-09-04 |
 | 1 Containers and schema | done, verified | migrate service ran 5 migrations; ping from web handled by worker container; worker survived `docker compose restart redis` (logs one connection error, then continues); 3 replicas processed 7 pings exactly once; tests, Pint, PHPStan green |
+| 1b Scheduler | done, verified | `scheduler` service runs `schedule:work`; minute loop fires (2 ticks in 2 minutes); `--scale scheduler=2` still fires each task once, instances alternating as lock winner |
 | 2 Upload path with auth | next | see section 8 |
 | 3 Extraction agent | todo | LlmClient interface + fake, schema, retry policy, job, sweeper |
 | 4 Frontend | todo | React + Inertia scaffold, auth pages, list with polling, detail, states |
@@ -171,6 +172,12 @@ Stage 3 registers a task in `routes/console.php`; register it with `onOneServer(
 - `composer create-project` refuses a non-empty directory; the repo was scaffolded in a scratch
   directory and copied in around the existing `.git`.
 - With `QUEUE_CONNECTION=sync` in tests, a forgotten `Queue::fake()` runs the job inline.
+- `LOG_CHANNEL=stderr`, so there is no `storage/logs/laravel.log`. Read application output with
+  `docker compose logs <service>`, not by grepping a file.
+- `onOneServer()` on a closure throws `LogicException` unless `name()` is called first. Scheduling
+  the sweeper as `Schedule::command('uploads:sweep')` avoids this; a closure needs the name.
+- The entrypoint lives in the image, not the bind mount, so adding a role to it needs
+  `docker compose up -d --build`, not a restart.
 
 ## 10. End-of-session checklist
 

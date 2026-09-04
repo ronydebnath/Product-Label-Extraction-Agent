@@ -54,7 +54,8 @@ services:
   # Exactly one of these, always. `schedule:work` fires every due task on the minute, so a second
   # instance means the sweeper runs twice concurrently -- which is why the worker scales and this
   # does not. The scheduled tasks additionally take a Redis lock (`onOneServer`), so a mistaken
-  # `--scale scheduler=2` degrades into one instance doing nothing rather than into double work.
+  # `--scale scheduler=2` still fires each task once per minute: the instances race for the lock
+  # and the loser skips. Verified: two instances, two minutes, two runs, alternating winners.
   # No uploads volume on purpose: the sweeper only moves rows and re-dispatches jobs by id, and
   # mounting the file store into a process that has no business reading it widens the blast radius.
   scheduler:

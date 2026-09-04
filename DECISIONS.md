@@ -21,7 +21,9 @@ sweeper (re-dispatch rows left `queued`, fail rows whose lease expired at the at
 be fired by something, and the two obvious homes are both wrong: `web` would fire it once per
 replica, and `worker` would fire it once per `--scale worker=N`. Timers are not work, so they do
 not belong in a process type that scales. One scheduler, never scaled, with `onOneServer` locks on
-the tasks themselves so that a scaling mistake costs nothing.
+the tasks themselves so that a scaling mistake costs nothing. Verified rather than assumed: two
+scheduler containers running a once-a-minute task produced two runs in two minutes, with the two
+instances alternating as lock winner.
 
 The scheduler is deliberately not given the uploads volume. It moves rows and re-dispatches job
 ids; it never opens a file.
