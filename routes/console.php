@@ -1,8 +1,12 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
-use Illuminate\Support\Facades\Artisan;
+use App\Console\Commands\RequeueStaleUploads;
+use Illuminate\Support\Facades\Schedule;
 
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
+// Fired by the `scheduler` container (docker/entrypoint.sh scheduler). onOneServer takes a Redis
+// lock so that scaling the scheduler by accident cannot run two sweeps at once; withoutOverlapping
+// stops a slow sweep from being started again on top of itself.
+Schedule::command(RequeueStaleUploads::class)
+    ->everyMinute()
+    ->onOneServer()
+    ->withoutOverlapping();

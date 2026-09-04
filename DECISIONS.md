@@ -96,6 +96,55 @@ nineteen, and each rejection names the file they recognise. The file-count cap i
 refuses the request whole, because accepting the first twenty of twenty-one is a silent partial
 success the user cannot see.
 
+## Treating the model as an untrusted dependency
+
+Every call goes through an `LlmClient` interface. Nothing outside `OpenAiResponsesClient` names
+OpenAI, and every test binds a fake, so no test can spend money or fail because a third party is
+having a bad afternoon.
+
+Failures are split in two, and the split is the whole retry strategy:
+
+- **Transient** (429, 408, 5xx, connection failure or timeout) means the request was fine and the
+  service was not. The job returns the row to `queued` and releases itself with exponential
+  backoff and jitter: roughly 10s, 30s, 90s, 270s, each varied by +/-25%. Jitter matters because
+  every job queued during one outage would otherwise come back at the same instant and cause the
+  next one. A `Retry-After` header wins when it asks for longer than we would have waited, and is
+  ignored when it asks for less, and is capped at five minutes so a hostile or mistaken header
+  cannot strand an upload.
+- **Permanent** (400/401/403/404/413/422, unparsable output, schema violation, refusal, truncation,
+  a document the model says is not a label) fails immediately. Retrying spends money to arrive at
+  the same place.
+
+The client never retries internally. Retrying belongs to the queue, which knows the attempt number,
+survives a process restart, and records what happened on the row. A client that hid its own retries
+would make the attempt count a lie and multiply the real timeout by however many it hid.
+
+**No repair-retry on malformed output.** Sending the broken JSON back and asking for a fix doubles
+the cost and the latency of the worst case, has no bounded success rate, and makes the failure path
+the least-tested code in the system. Strict `json_schema` already makes malformed output rare; when
+it happens the honest answer is a clear failure and a logged excerpt, not another guess.
+
+## Concurrency
+
+Every status change is one conditional `UPDATE ... WHERE status = expected` with an affected-rows
+check, never read-then-save. Two workers handed the same job both run the claim; the database
+serialises them and exactly one sees a row affected. The other is told no and stops.
+
+A claim stamps a lease. A row already in `processing` becomes claimable once its lease expires,
+which is how work from a worker killed mid-job (OOM, deploy, SIGKILL) gets picked up instead of
+being stranded. The attempt is counted at claim time, not on success, so a worker that dies
+mid-call still burns an attempt and a poisonous file cannot loop forever.
+
+The timing ladder holds this together, and the order matters:
+`HTTP timeout 60s < job timeout 90s < lease 120s < queue retry_after 150s`. Each step leaves room
+for the one before it to finish and record what happened, so a job is never redelivered while its
+first run is still talking to the model.
+
+Three things can still leave a row stranded, so there is a `failed()` hook for when the queue gives
+up without `handle()` finishing, and a sweeper for jobs Redis lost. The sweeper's staleness
+threshold (10 minutes) is deliberately longer than the maximum backoff (5 minutes), or it would
+mistake a row patiently waiting out its retry for a lost one.
+
 ## Idempotency and dedupe
 
 Status transitions are single `UPDATE ... WHERE status = expected` statements with an
@@ -103,7 +152,11 @@ affected-rows check, never read-then-save. A worker takes a row by moving it fro
 processing and stamping a lease; a stale lease may be taken over. The `extractions.upload_id`
 unique constraint makes double-writes impossible at the database level.
 
-Dedupe key: sha256 of the bytes, plus model and prompt version. Filename and size are
+Dedupe key: sha256 of the bytes, plus model and prompt version. `PROMPT_VERSION` must be bumped
+whenever the prompt or schema changes: the same bytes asked a different question are a different
+answer, and reusing the old one would be wrong. A reused extraction records zero tokens and zero
+duration, because that is what it cost; copying the original's counts would inflate every usage
+total by every duplicate anyone ever uploaded. Filename and size are
 user-controlled; the hash is the only identity the client cannot lie about. Identical bytes
 reuse the existing extraction and never reach the LLM twice.
 

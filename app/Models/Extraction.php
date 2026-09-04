@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use Database\Factories\ExtractionFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -21,7 +23,8 @@ use Illuminate\Support\Carbon;
  */
 class Extraction extends Model
 {
-    use HasUuids;
+    /** @use HasFactory<ExtractionFactory> */
+    use HasFactory, HasUuids;
 
     // Written exactly once, never updated; there is nothing for updated_at to record.
     public const null UPDATED_AT = null;

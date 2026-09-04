@@ -124,36 +124,36 @@ Upload acceptance (FR-3, FR-8, FR-9, FR-10)
 ### Stage 3: extraction agent
 
 LLM client (FR-18, FR-19, FR-20)
-- [ ] T3.1 429 with Retry-After maps to `LlmTransientException` carrying the delay; 500/502/503/504/408 map to transient; connection timeout maps to transient.
-- [ ] T3.2 400/401/403/404/413/422 map to `LlmPermanentException` with `llm_rejected_request`.
-- [ ] T3.3 Request shape: PDF sent as `input_file`, image as `input_image` data URL, strict
+- [x] T3.1 429 with Retry-After maps to `LlmTransientException` carrying the delay; 500/502/503/504/408 map to transient; connection timeout maps to transient.
+- [x] T3.2 400/401/403/404/413/422 map to `LlmPermanentException` with `llm_rejected_request`.
+- [x] T3.3 Request shape: PDF sent as `input_file`, image as `input_image` data URL, strict
       `json_schema` present, model from config, upload id in metadata, key never logged.
-- [ ] T3.4 Parses `output_text`; `incomplete` status and refusal map to `llm_invalid_output`.
+- [x] T3.4 Parses `output_text`; `incomplete` status and refusal map to `llm_invalid_output`.
 
 Retry policy (FR-19)
-- [ ] T3.5 Delays for attempts 1 to 4 fall in [7.5, 12.5], [22.5, 37.5], [67.5, 112.5], [202.5, 337.5] seconds; Retry-After larger than the computed delay wins.
+- [x] T3.5 Delays for attempts 1 to 4 fall in [7.5, 12.5], [22.5, 37.5], [67.5, 112.5], [202.5, 337.5] seconds; Retry-After larger than the computed delay wins.
 
 Extraction action (FR-14, FR-16, FR-17, FR-21, FR-22)
-- [ ] T3.6 Valid response yields a `LabelData` DTO; tokens and duration captured.
-- [ ] T3.7 (M) Unparsable JSON text fails with `llm_invalid_output`.
-- [ ] T3.8 (M) Valid JSON with a missing key, an unknown unit, or extra properties fails with `llm_invalid_output`.
-- [ ] T3.9 `document_type = other` fails with `no_label_found`.
-- [ ] T3.10 Identical content hash with the same model and prompt version reuses the extraction; the fake records zero calls.
-- [ ] T3.11 Missing file on disk fails with `file_missing` and makes zero calls.
+- [x] T3.6 Valid response yields a `LabelData` DTO; tokens and duration captured.
+- [x] T3.7 (M) Unparsable JSON text fails with `llm_invalid_output`.
+- [x] T3.8 (M) Valid JSON with a missing key, an unknown unit, or extra properties fails with `llm_invalid_output`.
+- [x] T3.9 `document_type = other` fails with `no_label_found`.
+- [x] T3.10 Identical content hash with the same model and prompt version reuses the extraction; the fake records zero calls.
+- [x] T3.11 Missing file on disk fails with `file_missing` and makes zero calls.
 
 Job (FR-11 to FR-13, FR-19, FR-20, FR-23)
-- [ ] T3.12 Happy path: `queued` to `completed`, one extraction row, `completed_at` set, attempts 1.
-- [ ] T3.13 (M) Transient failure: row back to `queued`, attempts 1, `last_error` set, `assertReleased` with the policy's delay.
-- [ ] T3.14 (M) Fifth transient failure: `assertFailed`, row `failed` with `llm_unavailable`.
-- [ ] T3.15 Permanent failure: `assertFailed`, `assertNotReleased`, row `failed` with the specific code.
-- [ ] T3.16 Job run against a `completed` or `failed` upload: zero calls, no new row, no change.
-- [ ] T3.17 Upload already `processing` with a fresh lease: second run exits without a call; with a stale lease: takes over and increments attempts.
-- [ ] T3.18 `failed()` hook receiving `MaxAttemptsExceededException` leaves the row terminal with a code, never stuck in `processing`.
-- [ ] T3.19 Any other Throwable: row `failed` with `unexpected`, exception reported.
-- [ ] T3.20 End to end on the real Redis queue: dispatch, `queue:work --once`, upload `completed`.
+- [x] T3.12 Happy path: `queued` to `completed`, one extraction row, `completed_at` set, attempts 1.
+- [x] T3.13 (M) Transient failure: row back to `queued`, attempts 1, `last_error` set, `assertReleased` with the policy's delay.
+- [x] T3.14 (M) Fifth transient failure: `assertFailed`, row `failed` with `llm_unavailable`.
+- [x] T3.15 Permanent failure: `assertFailed`, `assertNotReleased`, row `failed` with the specific code.
+- [x] T3.16 Job run against a `completed` or `failed` upload: zero calls, no new row, no change.
+- [x] T3.17 Upload already `processing` with a fresh lease: second run exits without a call; with a stale lease: takes over and increments attempts.
+- [x] T3.18 `failed()` hook receiving `MaxAttemptsExceededException` leaves the row terminal with a code, never stuck in `processing`.
+- [x] T3.19 Any other Throwable: row `failed` with `unexpected`, exception reported.
+- [x] T3.20 End to end on the real Redis queue: dispatch, `queue:work --once`, upload `completed`.
 
 Sweeper (FR-32)
-- [ ] T3.21 `queued` rows older than five minutes are re-dispatched; `processing` rows past the lease with attempts at the cap are failed; fresh rows are untouched.
+- [x] T3.21 `queued` rows older than five minutes are re-dispatched; `processing` rows past the lease with attempts at the cap are failed; fresh rows are untouched.
 
 ### Stage 4: frontend (no unit tests by decision; Inertia assertions only)
 

@@ -131,45 +131,32 @@ Custom code so far (everything else is the untouched Laravel 13.10 skeleton):
 | 1b Scheduler | done, verified | `scheduler` service runs `schedule:work`; minute loop fires (2 ticks in 2 minutes); `--scale scheduler=2` still fires each task once, instances alternating as lock winner |
 | 2a Auth | done | Fortify trimmed to registration + login; 7 tests green; register exercised in the browser, lands on /uploads |
 | 2b Upload path | done, verified | 18 upload tests green; a real 3-page UAT spec sheet uploaded through the running stack was accepted with page_count 3, stored under a uuid path visible from the worker container, and its job drained from Redis; a text file named .jpg was rejected in the same request |
-| 3 Extraction agent | todo | LlmClient interface + fake, schema, retry policy, job, sweeper |
+| 3 Extraction agent | done, verified | 107 tests green; three real UAT spec sheets extracted end to end through the live API in the running stack, all completed on attempt 1; the falafel sheet's page-3 allergen table was correctly flagged as conflicting with its ingredient list |
 | 4 Frontend | todo | React + Inertia scaffold, auth pages, list with polling, detail, states |
 | 5 Test matrix | todo | remaining rows of TDD-SPEC.md section 5 |
 | 6 Docs and review brief | todo | trim DECISIONS.md to a page, README final, review-call brief |
 
-## 8. Next action (Stage 3: the extraction agent)
+## 8. Next action (Stage 4: the frontend)
 
-Stage 2 is complete. Work test-first in this order (rows T3.1 to T3.21 in TDD-SPEC.md):
+Stage 3 is complete. The backend does the whole job; nothing is rendered yet. Rows T4.1 to T4.3 in
+TDD-SPEC.md, plus the manual checks.
 
-1. `App\Llm\LlmClient` interface plus `LlmRequest`/`LlmResponse` DTOs, and
-   `Tests\Support\FakeLlmClient` bound in `tests/Pest.php` so no test can reach OpenAI.
-2. `LabelDataSchema` and a `PROMPT_VERSION` constant, matching PRD section 8 exactly. Validate the
-   response server-side against the same schema that was sent as `json_schema`.
-3. `LlmTransientException` / `LlmPermanentException`, then `OpenAiResponsesClient` with
-   `Http::fake()` tests mapping status codes to the right exception (T3.1, T3.2).
-4. `RetryBackoff` as an injectable policy so job tests bind a fixed delay and the jitter gets its
-   own seeded unit test (T3.5).
-5. `ExtractLabelData`: reuse by (content_hash, model, prompt_version), load the bytes, build the
-   request, validate the result, map `document_type = other` to `no_label_found`.
-6. Fill in `ProcessUploadJob`: compare-and-swap lease, release with backoff on transient failures,
-   terminal on permanent ones, and a `failed()` hook that can never leave a row in `processing`.
-7. `RequeueStaleUploads` command, registered in `routes/console.php` with `onOneServer()`. The
-   `scheduler` container is already running and currently has nothing to fire.
+1. Install Inertia 3 + React 19 + TypeScript + Tailwind 4 + Radix + TanStack Query. Replace the two
+   placeholder blades (`resources/views/auth/*`, `resources/views/components/auth-layout.blade.php`)
+   with Inertia pages by changing the two closures in `FortifyServiceProvider`.
+2. `ListUploads` (Inertia `Uploads/Index`), `ShowUpload` (`Uploads/Show`), and `UploadStatuses`
+   (JSON, polled). Write T4.1 to T4.3 first; T2.5 and T2.19b are waiting on these routes.
+3. `UploadDropzone`, `UploadList`, `UploadRow`, `StatusBadge`, `ExtractionView`, `EmptyState`,
+   `ErrorState`. `useUploadStatuses(ids)` polls every 2s while anything is non-terminal and stops
+   when everything is.
+4. Absent fields render as "Not found on document", never as an empty string or "null" (FR-27).
+   Failure text comes from `failure_code` through `FailureCode::message()`, never from
+   `last_error` (FR-29).
+5. Add the `tsc --noEmit` and ESLint gates to the checklist in section 4 of TDD-SPEC.md.
 
-Resolved 2026-09-04 by probing the key: it reaches 132 models. The default is
-`OPENAI_MODEL=gpt-5.4-mini`, chosen on measured latency, token cost and allergen accuracy against a
-real UAT spec sheet (table in DECISIONS.md). Native PDF via `input_file` and strict `json_schema`
-are both confirmed working against the live API.
-
-Known prompt defect to fix in step 5: `gpt-5-mini` copied `contains` into `may_contain`. The prompt
-must say that `may_contain` is only for an explicit "may contain" or traces statement and is an
-empty array otherwise. `gpt-5.4-mini` got this right unprompted, but the instruction should not
-depend on the model.
-
-Timing ladder to keep consistent: LLM HTTP timeout 60 s < job timeout 90 s < lease stale 120 s <
-`REDIS_QUEUE_RETRY_AFTER` 150 s.
-
-Decided 2026-09-04: the sweeper is fired by the `scheduler` compose service running
-`php artisan schedule:work` off the same image, registered with `onOneServer()`.
+Known model quirk to consider when rendering warnings: the 200-character cap makes the model
+compress, and one live call produced a warning truncated mid-word with a stray non-Latin character
+in it. Rendering is fine; it is worth knowing the text can read oddly.
 
 ## 9. Gotchas already paid for
 
@@ -191,6 +178,14 @@ Decided 2026-09-04: the sweeper is fired by the `scheduler` compose service runn
   the development database and the real Redis queue. If you add a variable there use `<server>`,
   and re-check with `dump(app()->environment(), config('database.connections.pgsql.database'))`.
 - Fortify's login throttle returns 429 from middleware, not a validation error on the session.
+- Horizon does not hot-reload PHP. After changing worker code: `docker compose restart worker`.
+  After changing `.env`: `docker compose up -d --force-recreate worker`, because a restart keeps
+  the old environment. Getting this wrong once left the worker running the previous OPENAI_MODEL
+  while `.env` and every test said otherwise.
+- `TimeoutExceededException` extends `MaxAttemptsExceededException`, so checking for both in a
+  `failed()` hook is redundant and PHPStan will say so.
+- A helper function defined in one Pest test file is not visible in another. Shared helpers
+  (`validDocument`, `sampleFile`, `uploadedBytes`, `fakeLlm`) live in `tests/Pest.php`.
 - `docker compose restart` does NOT re-read `.env`; the container keeps the environment it was
   created with. Only `up -d` (or `--force-recreate`) picks up a changed value. This cost an hour
   of chasing a "dead" OpenAI key that was live on the host and stale in the container. To compare

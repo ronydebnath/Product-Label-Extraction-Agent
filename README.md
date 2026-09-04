@@ -72,6 +72,21 @@ and PDF only, decided by sniffing the bytes rather than by the extension. All of
 `POST /uploads` validates each file separately and answers 201 with `accepted` and `rejected`
 lists, or 422 when nothing was accepted.
 
+## The extraction agent
+
+The worker sends each file to the model behind an `LlmClient` interface, validates the answer
+against the same JSON Schema it asked for, and records tokens and latency. `OPENAI_MODEL` selects
+the model; the default was chosen by measurement (see [DECISIONS.md](DECISIONS.md)).
+
+```sh
+docker compose logs -f worker                       # every line carries the upload id
+docker compose exec web php artisan uploads:sweep   # recover lost jobs by hand; the scheduler runs it every minute
+```
+
+Transient failures (429, 408, 5xx, timeouts) are retried by the queue with exponential backoff and
+jitter, up to 5 attempts, honouring `Retry-After`. Permanent ones (bad request, unparsable or
+schema-invalid output, refusal, not a label) fail immediately with a specific reason.
+
 ## Tests and static analysis
 
 All run inside the container against the real Postgres (database `app_test`) and Redis (db 9):
