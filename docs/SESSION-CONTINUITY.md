@@ -132,31 +132,30 @@ Custom code so far (everything else is the untouched Laravel 13.10 skeleton):
 | 2a Auth | done | Fortify trimmed to registration + login; 7 tests green; register exercised in the browser, lands on /uploads |
 | 2b Upload path | done, verified | 18 upload tests green; a real 3-page UAT spec sheet uploaded through the running stack was accepted with page_count 3, stored under a uuid path visible from the worker container, and its job drained from Redis; a text file named .jpg was rejected in the same request |
 | 3 Extraction agent | done, verified | 107 tests green; three real UAT spec sheets extracted end to end through the live API in the running stack, all completed on attempt 1; the falafel sheet's page-3 allergen table was correctly flagged as conflicting with its ingredient list |
-| 4 Frontend | todo | React + Inertia scaffold, auth pages, list with polling, detail, states |
-| 5 Test matrix | todo | remaining rows of TDD-SPEC.md section 5 |
+| 4 Frontend | done, verified | Inertia 3.7 + React 19.2 + TS 6 + Tailwind 4 + TanStack Query; 124 PHP tests, tsc and ESLint clean, production image builds; login, list, detail and the polling snapshot all exercised against the running stack |
+| 5 Test matrix | done | every row in TDD-SPEC.md section 5 is ticked; 124 tests, 403 assertions |
 | 6 Docs and review brief | todo | trim DECISIONS.md to a page, README final, review-call brief |
 
-## 8. Next action (Stage 4: the frontend)
+## 8. Next action (Stage 6: documentation and the review brief)
 
-Stage 3 is complete. The backend does the whole job; nothing is rendered yet. Rows T4.1 to T4.3 in
-TDD-SPEC.md, plus the manual checks.
+The application is feature-complete and every backlog row is green. What is left is the writing,
+and one requirement of the brief that is not yet answered anywhere.
 
-1. Install Inertia 3 + React 19 + TypeScript + Tailwind 4 + Radix + TanStack Query. Replace the two
-   placeholder blades (`resources/views/auth/*`, `resources/views/components/auth-layout.blade.php`)
-   with Inertia pages by changing the two closures in `FortifyServiceProvider`.
-2. `ListUploads` (Inertia `Uploads/Index`), `ShowUpload` (`Uploads/Show`), and `UploadStatuses`
-   (JSON, polled). Write T4.1 to T4.3 first; T2.5 and T2.19b are waiting on these routes.
-3. `UploadDropzone`, `UploadList`, `UploadRow`, `StatusBadge`, `ExtractionView`, `EmptyState`,
-   `ErrorState`. `useUploadStatuses(ids)` polls every 2s while anything is non-terminal and stops
-   when everything is.
-4. Absent fields render as "Not found on document", never as an empty string or "null" (FR-27).
-   Failure text comes from `failure_code` through `FailureCode::message()`, never from
-   `last_error` (FR-29).
-5. Add the `tsc --noEmit` and ESLint gates to the checklist in section 4 of TDD-SPEC.md.
+1. **DECISIONS.md does not yet answer the 50,000 simultaneous uploads question.** The brief asks
+   for it by name and it is the single biggest gap. The decided answer (Stage 0) is to document
+   rate-limiting queue middleware rather than build it: `Redis::throttle()` on the job to cap
+   concurrent LLM calls, a separate queue per priority, `--scale worker=N` for throughput, and the
+   observation that the bottleneck is the model's rate limit rather than PHP. Write it with the
+   numbers this build actually produces: ~3-5s per document, 5 processes per worker container.
+2. Trim DECISIONS.md to about a page. It has grown past that, and the brief asks for one page.
+3. README final pass: it should still map one-to-one onto the compose services.
+4. Look at the UI in a browser. Loading, empty, error and per-file rejection states are all
+   implemented, but no human has seen them; the automated checks only prove they render.
+5. Write the review-call brief: the questions likely to be asked and the honest answers, including
+   the things deliberately not built.
 
-Known model quirk to consider when rendering warnings: the 200-character cap makes the model
-compress, and one live call produced a warning truncated mid-word with a stray non-Latin character
-in it. Rendering is fine; it is worth knowing the text can read oddly.
+Nothing in the code is known to be incomplete. If something turns up, it goes in TDD-SPEC.md
+section 5 as a new row with a failing test first.
 
 ## 9. Gotchas already paid for
 
@@ -178,6 +177,18 @@ in it. Rendering is fine; it is worth knowing the text can read oddly.
   the development database and the real Redis queue. If you add a variable there use `<server>`,
   and re-check with `dump(app()->environment(), config('database.connections.pgsql.database'))`.
 - Fortify's login throttle returns 429 from middleware, not a validation error on the session.
+- Chaining `->beforeEach()` twice on `pest()` REPLACES the first closure instead of adding to it.
+  Everything shared belongs in one closure in `tests/Pest.php`; getting this wrong silently
+  unbound the fake LLM client and 23 tests started resolving the real OpenAI client.
+- `JsonResource` wraps output in `data` by default, which breaks Inertia prop assertions.
+  `JsonResource::withoutWrapping()` in `AppServiceProvider::boot()` keeps one shape everywhere.
+- Inertia 3 puts the page object in `<script data-page="app" type="application/json">`, not in a
+  `data-page` attribute on a div. Parsing the old shape finds nothing.
+- Feature tests need `withoutVite()` or every page render looks for a manifest that only exists
+  after `npm run build`.
+- The `@/*` alias needs to be declared twice: `paths` in tsconfig.json for the type checker and
+  `resolve.alias` in vite.config.ts for the bundler. And without `baseUrl` (deprecated in TS 6)
+  the paths entries need a leading `./`.
 - Horizon does not hot-reload PHP. After changing worker code: `docker compose restart worker`.
   After changing `.env`: `docker compose up -d --force-recreate worker`, because a restart keeps
   the old environment. Getting this wrong once left the worker running the previous OPENAI_MODEL

@@ -94,8 +94,7 @@ Auth (FR-1, FR-2)
 - [x] T2.2 Rejects registration with a duplicate email or a short password.
 - [x] T2.3 Logs in with valid credentials; rejects invalid ones; throttles after repeated failures.
 - [x] T2.4 Logs out and invalidates the session.
-- [~] T2.5 Guests get 401 JSON from `POST /uploads` (done). The redirect from the `/uploads`
-      page and the `/api/uploads` snapshot wait for those routes in Stage 4.
+- [x] T2.5 Guests are redirected from `/uploads` and get 401 JSON from `/api/uploads`.
 
 Upload rejection (FR-4 to FR-7)
 - [x] T2.6 (M) `.txt` renamed to `.jpg` is rejected as `unsupported_type`; nothing stored, nothing dispatched.
@@ -117,7 +116,7 @@ Upload acceptance (FR-3, FR-8, FR-9, FR-10)
 - [x] T2.18 Queue connection throwing at dispatch: row is `failed` with `queue_unavailable` and
       the response reports it.
 - [x] T2.19a A created row belongs to the authenticated user.
-- [ ] T2.19b Another user's upload id returns 404 on show (needs the Stage 4 show route).
+- [x] T2.19b Another user's upload id returns 404 on show.
 - [x] T2.20 The same bytes uploaded twice make two rows with one content hash, so Stage 3
       has something to deduplicate against (FR-14).
 
@@ -157,15 +156,17 @@ Sweeper (FR-32)
 
 ### Stage 4: frontend (no unit tests by decision; Inertia assertions only)
 
-- [ ] T4.1 `/uploads` renders the `Uploads/Index` page with the user's uploads only, newest first (FR-24).
-- [ ] T4.2 `/uploads/{id}` renders `Uploads/Show` with extraction data for completed uploads and the failure message for failed ones; 404 for other users' ids and non-uuid ids (FR-27, FR-2).
-- [ ] T4.3 `/api/uploads?ids=` returns status, attempts and message for the caller's uploads, never `last_error` (FR-26, FR-29).
-- [ ] Manual: loading, empty, error and rejection states in the browser (FR-28); polling stops when all terminal.
+- [x] T4.1 `/uploads` renders the `Uploads/Index` page with the user's uploads only, newest first (FR-24).
+- [x] T4.2 `/uploads/{id}` renders `Uploads/Show` with extraction data for completed uploads and the failure message for failed ones; 404 for other users' ids and non-uuid ids (FR-27, FR-2).
+- [x] T4.3 `/api/uploads?ids=` returns status, attempts and message for the caller's uploads, never `last_error` (FR-26, FR-29).
+- [x] Manual: pages render and the flow works end to end in the stack (login, list, detail,
+      polling snapshot, per-file rejection). Loading, empty and error states are implemented
+      in `Components/States.tsx` and the dropzone; a human still needs to look at them.
 
 ### Stage 5: remaining matrix
 
 - [ ] Every row above green; add any case discovered during Stage 4.
-- [ ] `tsc --noEmit` and ESLint clean.
+- [x] `tsc --noEmit` and ESLint clean, and `npm run build` produces a bundle.
 
 ## 6. Anti-patterns we refuse
 

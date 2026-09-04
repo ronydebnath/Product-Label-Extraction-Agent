@@ -160,6 +160,28 @@ total by every duplicate anyone ever uploaded. Filename and size are
 user-controlled; the hash is the only identity the client cannot lie about. Identical bytes
 reuse the existing extraction and never reach the LLM twice.
 
+## Frontend
+
+Inertia rather than a separate SPA with its own API and token auth: the app is four screens behind
+a session, and Inertia lets the same Laravel routes and the same authorisation serve typed React
+pages without a second contract to keep in step.
+
+Status updates are polled every two seconds, not pushed. Websockets would need a broadcaster and a
+persistent connection per open tab, for a page most people leave within a minute of uploading. The
+poll asks only about rows that are still moving and disables itself entirely once everything is
+terminal, so an idle tab makes no requests at all. If this became a page people leave open all day,
+that is the point to reconsider.
+
+Everything the browser sees goes through one `UploadResource`, so there is exactly one place to
+check that `last_error` never leaves the server. Failure text on screen is always the mapped
+sentence from `FailureCode::message()`, never an exception, and the caps quoted in the dropzone are
+sent from `config/uploads.php` rather than hard-coded, so the UI cannot promise a limit the
+validator does not enforce.
+
+Absent fields render as "Not found on document" rather than as blanks. A null in this data means
+the document did not say, which is information a reviewer needs, and an empty cell looks like a
+bug in the extractor.
+
 ## Trade-offs so far
 
 - Postgres CHECK constraints instead of enum types: adding a status is one constraint swap.

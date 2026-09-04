@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Llm\LlmClient;
 use App\Llm\OpenAiResponsesClient;
+use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -17,6 +18,9 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        //
+        // Resources are used as Inertia page props as well as JSON bodies, and a "data" wrapper
+        // would mean the two shapes disagree. One shape everywhere is easier to type on the
+        // client and easier to assert on in tests.
+        JsonResource::withoutWrapping();
     }
 }

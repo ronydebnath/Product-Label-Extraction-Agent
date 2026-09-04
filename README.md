@@ -95,6 +95,8 @@ All run inside the container against the real Postgres (database `app_test`) and
 docker compose exec web php artisan test
 docker compose exec web vendor/bin/pint --test
 docker compose exec web vendor/bin/phpstan analyse
+docker compose exec vite npm run types      # tsc --noEmit
+docker compose exec vite npm run lint       # eslint
 ```
 
 ## Stack

@@ -12,9 +12,17 @@ use Tests\TestCase;
 // container (see phpunit.xml). RefreshDatabase wraps each test in a transaction.
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
-    // Bound for every feature test, not just the ones that mean to use it: an unbound LlmClient
-    // would let a forgotten expectation reach the real API and spend real money.
-    ->beforeEach(fn () => app()->instance(LlmClient::class, new FakeLlmClient))
+    // One closure, not two chained calls: a second ->beforeEach() replaces the first rather than
+    // adding to it, which silently unbinds whatever the first one set up.
+    ->beforeEach(function () {
+        // Bound for every feature test, not just the ones that mean to use it: an unbound
+        // LlmClient would let a forgotten expectation reach the real API and spend real money.
+        app()->instance(LlmClient::class, new FakeLlmClient);
+
+        // Feature tests assert on Inertia page objects, not on compiled assets. Without this,
+        // every page render fails looking for a Vite manifest that only exists after a build.
+        test()->withoutVite();
+    })
     ->in('Feature');
 
 /** The scripted model bound for the current test. */
