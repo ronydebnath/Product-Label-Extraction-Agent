@@ -22,6 +22,7 @@ storage/framework/testing/*
 storage/framework/views/*
 storage/logs/*
 !**/.gitignore
+tests/UAT files
 compose*.yaml
 Dockerfile
 .dockerignore
